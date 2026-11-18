@@ -164,6 +164,30 @@ func TestPaneBackgroundModes(t *testing.T) {
 	}
 }
 
+func TestCustomWindowBackgroundPaintsPaneGaps(t *testing.T) {
+	left := &Pane{ID: 4, Info: session.Info{Shell: "sh", Dir: "/tmp", Idle: true}}
+	right := &Pane{ID: 5, Info: session.Info{Shell: "sh", Dir: "/tmp", Idle: true}}
+	aNode, bNode := &Node{ID: 2, Pane: left}, &Node{ID: 3, Pane: right}
+	root := &Node{ID: 1, Ratio: 0.5, A: aNode, B: bNode}
+	tab := &Tab{ID: 1, Root: root, Focus: left}
+	left.Tab, left.Node, right.Tab, right.Node = tab, aNode, tab, bNode
+	prefs := defaultSettings()
+	prefs.BackgroundTint, prefs.BackgroundOpacity = "#000000", 0.99
+	prefs.PaneBackground, prefs.PaneTint = "custom", "#000000"
+	a := &App{tabs: []*Tab{tab}, prefs: prefs}
+	tester := ui.NewTester(a.view, 800, 500)
+	tester.SetDark(true)
+	tester.Frame()
+	gap := tester.Image().RGBAAt(400, 150)
+	pane := tester.Image().RGBAAt(200, 150)
+	if gap.R < 15 || gap.G < 15 || gap.B < 15 {
+		t.Fatalf("pane divider still exposes the black window background: %+v", gap)
+	}
+	if gap.R <= pane.R || gap.G <= pane.G || gap.B <= pane.B {
+		t.Fatalf("pane divider does not have the title bar surface: gap=%+v pane=%+v", gap, pane)
+	}
+}
+
 func TestBackgroundColorAndOpacity(t *testing.T) {
 	t.Setenv("LARIK_DESKTOP_DIR", t.TempDir())
 	a := &App{prefs: defaultSettings()}

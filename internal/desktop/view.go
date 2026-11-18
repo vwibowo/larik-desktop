@@ -25,7 +25,11 @@ func (a *App) view(c *ui.Context) {
 	c.Root().Background(ui.Transparent)
 	ui.Column(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) { gradient(p, r, k, !a.prefs.NativeBlur) }).Children(func() {
 		a.titleBar(c, k)
-		ui.Box(c).Grow(1).MinHeight(0).Padding(0, paneGap, paneGap, paneGap).Children(func() {
+		canvas := ui.Box(c).Grow(1).MinHeight(0).Padding(0, paneGap, paneGap, paneGap)
+		if k.customBackground && a.tab() != nil {
+			canvas.Background(colors(c).focused)
+		}
+		canvas.Children(func() {
 			if tab := a.tab(); tab != nil {
 				if tab.Zoom != nil {
 					a.paneCard(c, k, tab.Zoom).Fill()
