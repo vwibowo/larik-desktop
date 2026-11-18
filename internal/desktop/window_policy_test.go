@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/plugins/terminal"
 	"larik/internal/session"
 )
 
@@ -64,15 +65,30 @@ func TestTerminalWindowClosePolicies(t *testing.T) {
 	p := &Pane{SID: info.ID}
 	tab := &Tab{Root: &Node{Pane: p}, Focus: p}
 	a := &App{client: c, tabs: []*Tab{tab}, prefs: defaultSettings()}
+	if err := terminal.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.newTab(dir); err != nil {
+		t.Fatal(err)
+	}
+	chooser := a.tab().Focus
+	if chooser.Kind != paneEmpty || chooser.SID != "" {
+		t.Fatalf("new tab started a shell before selection: %+v", chooser)
+	}
+	a.choosePane(chooser, paneTerminal)
+	if chooser.Kind != paneTerminal || chooser.SID == "" || chooser.Term == nil {
+		t.Fatalf("terminal selection failed: %+v", chooser)
+	}
+	defer chooser.closeView()
 
 	a.persistWorkspace()
 	list, err := c.List()
-	if err != nil || len(list) != 1 {
+	if err != nil || len(list) != 2 {
 		t.Fatalf("keep sessions ended a shell: %+v, %v", list, err)
 	}
 	var saved savedLayout
 	data, err := c.Layout()
-	if err != nil || json.Unmarshal(data, &saved) != nil || len(saved.Tabs) != 1 {
+	if err != nil || json.Unmarshal(data, &saved) != nil || len(saved.Tabs) != 2 {
 		t.Fatalf("keep sessions did not save layout: %s, %v", data, err)
 	}
 

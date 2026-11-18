@@ -83,6 +83,7 @@ func (a *App) open() error {
 		Content:              ui.View(a.view),
 	})
 	a.win = win
+	a.saveDatabaseCSV = databaseCSVDialog(win, a)
 	a.keepTerminalMaterialActive()
 	mygo.App.SetMenu(a.menu())
 	if !a.restore() {
@@ -100,16 +101,11 @@ func (a *App) open() error {
 		close(a.pollDone)
 		for _, t := range a.tabs {
 			for _, p := range t.panes() {
-				p.Closed = true
-				if p.Term != nil {
-					p.Term.Close()
-				}
-				if p.Stream != nil {
-					_ = p.Stream.Close()
-				}
+				p.closeView()
 			}
 		}
 		a.win = nil
+		a.saveDatabaseCSV = nil
 		a.tabs = nil
 	})
 	return nil
@@ -135,7 +131,9 @@ func (a *App) persistWorkspace() {
 	}
 	for _, t := range a.tabs {
 		for _, p := range t.panes() {
-			_ = a.client.Kill(p.SID)
+			if p.SID != "" {
+				_ = a.client.Kill(p.SID)
+			}
 		}
 	}
 	if err := a.client.Save([]byte(`{"active":0,"tabs":[]}`)); err != nil {

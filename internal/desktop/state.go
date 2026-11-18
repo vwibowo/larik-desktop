@@ -18,22 +18,34 @@ import (
 )
 
 type Pane struct {
-	ID         int
-	SID        string
-	Node       *Node
-	Tab        *Tab
-	Term       *terminal.Terminal
-	Stream     *session.Stream
-	Info       session.Info
-	Title      string
-	Attention  bool
-	Closed     bool
-	Bounds     ui.Rect
-	FindOpen   bool
-	FindFocus  bool
-	FindQuery  string
-	FindStatus terminal.SearchStatus
+	ID          int
+	Kind        string
+	Dir         string
+	SID         string
+	Node        *Node
+	Tab         *Tab
+	Term        *terminal.Terminal
+	Browser     *browserState
+	Database    *databaseState
+	ChoiceError string
+	Stream      *session.Stream
+	Info        session.Info
+	Title       string
+	Attention   bool
+	Closed      bool
+	Bounds      ui.Rect
+	FindOpen    bool
+	FindFocus   bool
+	FindQuery   string
+	FindStatus  terminal.SearchStatus
 }
+
+const (
+	paneEmpty    = "empty"
+	paneTerminal = "terminal"
+	paneBrowser  = "browser"
+	paneDatabase = "database"
+)
 
 type Node struct {
 	ID       int
@@ -54,7 +66,11 @@ type Tab struct {
 
 type App struct {
 	win             *mygo.Window
+	newWebView      func(string) (*mygo.WebView, error)
 	client          *session.Client
+	databaseStore   *databaseStore
+	saveDatabaseCSV func(string, []byte, func(string, error))
+	copyText        func(string)
 	tabs            []*Tab
 	active          int
 	nextID          int
@@ -77,6 +93,7 @@ type App struct {
 	pollDone        chan struct{}
 	saveDue         bool
 	saveAt          time.Time
+	lastSnapshot    string
 	lastTitle       string
 	paletteOpen     bool
 	paletteQuery    string
@@ -109,6 +126,14 @@ func (n *Node) panes() []*Pane {
 func (t *Tab) panes() []*Pane { return t.Root.panes() }
 
 func (a *App) newPane(dir string) (*Pane, error) {
+	return a.startTerminal(&Pane{ID: a.id(), Kind: paneEmpty, Dir: dir})
+}
+
+func (a *App) emptyPane(dir string) *Pane {
+	return &Pane{ID: a.id(), Kind: paneEmpty, Dir: dir}
+}
+
+func (a *App) startTerminal(p *Pane) (*Pane, error) {
 	if !a.shellOverride {
 		if next, ready, err := a.client.UpgradeIfIdle(); err == nil {
 			a.client, a.shellOverride = next, ready
@@ -121,24 +146,58 @@ func (a *App) newPane(dir string) (*Pane, error) {
 	if a.shellOverride {
 		shell = a.prefs.Shell
 	}
-	info, err := a.client.CreateWithShell(dir, shell)
+	info, err := a.client.CreateWithShell(p.Dir, shell)
 	if err != nil {
 		return nil, err
 	}
-	p, err := a.attach(info)
+	p, err = a.attachInto(info, p)
 	if err != nil {
 		_ = a.client.Kill(info.ID)
 		return nil, err
 	}
+	p.ChoiceError = ""
 	return p, nil
 }
 
+func (a *App) choosePane(p *Pane, kind string) {
+	if p == nil || p.Kind != paneEmpty || p.Closed {
+		return
+	}
+	var err error
+	switch kind {
+	case paneTerminal:
+		_, err = a.startTerminal(p)
+		if err == nil {
+			a.focusReq = p
+		}
+	case paneBrowser:
+		err = a.startBrowser(p, "")
+	case paneDatabase:
+		a.startDatabase(p)
+	default:
+		return
+	}
+	if err != nil {
+		p.ChoiceError = err.Error()
+	} else {
+		p.ChoiceError = ""
+	}
+	a.changed()
+}
+
 func (a *App) attach(info session.Info) (*Pane, error) {
+	return a.attachInto(info, nil)
+}
+
+func (a *App) attachInto(info session.Info, p *Pane) (*Pane, error) {
 	stream, err := a.client.Attach(info.ID)
 	if err != nil {
 		return nil, err
 	}
-	p := &Pane{ID: a.id(), SID: info.ID, Info: info, Stream: stream}
+	if p == nil {
+		p = &Pane{ID: a.id()}
+	}
+	p.Kind, p.Dir, p.SID, p.Info, p.Stream = paneTerminal, info.Dir, info.ID, info, stream
 	lightTheme, darkTheme := a.prefs.viewThemes()
 	term, err := terminal.New(terminal.Options{
 		Conn: stream, Font: terminalFont(a.prefs.FontSize),
@@ -186,6 +245,7 @@ func (a *App) attach(info session.Info) (*Pane, error) {
 	})
 	if err != nil {
 		stream.Close()
+		p.Kind, p.SID, p.Stream = paneEmpty, "", nil
 		return nil, err
 	}
 	p.Term = term
@@ -193,11 +253,7 @@ func (a *App) attach(info session.Info) (*Pane, error) {
 }
 
 func (a *App) newTab(dir string) error {
-	p, err := a.newPane(dir)
-	if err != nil {
-		a.err = err.Error()
-		return err
-	}
+	p := a.emptyPane(dir)
 	t := &Tab{ID: a.id(), Focus: p}
 	n := &Node{ID: a.id(), Pane: p}
 	p.Tab, p.Node, t.Root = t, n, n
@@ -214,11 +270,11 @@ func (a *App) split(vertical bool) {
 		return
 	}
 	old := t.Focus
-	p, err := a.newPane(old.Info.Dir)
-	if err != nil {
-		a.err = err.Error()
-		return
+	dir := old.Dir
+	if dir == "" {
+		dir = a.currentDir()
 	}
+	p := a.emptyPane(dir)
 	p.Tab = t
 	leaf := old.Node
 	parent := &Node{ID: a.id(), Parent: leaf.Parent, Vertical: vertical, Ratio: 0.5}
@@ -242,13 +298,7 @@ func (a *App) closePane(p *Pane) {
 	if p == nil || p.Closed {
 		return
 	}
-	p.Closed = true
-	if p.Term != nil {
-		p.Term.Close()
-	}
-	if p.Stream != nil {
-		_ = p.Stream.Close()
-	}
+	p.closeView()
 	if p.SID != "" {
 		_ = a.client.Kill(p.SID)
 	}
@@ -309,18 +359,32 @@ func (a *App) closeTab(t *Tab) {
 		return
 	}
 	for _, p := range t.panes() {
-		p.Closed = true
-		if p.Term != nil {
-			p.Term.Close()
-		}
-		if p.Stream != nil {
-			_ = p.Stream.Close()
-		}
+		p.closeView()
 		if p.SID != "" {
 			_ = a.client.Kill(p.SID)
 		}
 	}
 	a.removeTab(t)
+}
+
+func (p *Pane) closeView() {
+	p.Closed = true
+	if p.Term != nil {
+		p.Term.Close()
+		p.Term = nil
+	}
+	if p.Stream != nil {
+		_ = p.Stream.Close()
+		p.Stream = nil
+	}
+	if p.Browser != nil {
+		p.Browser.close()
+		p.Browser = nil
+	}
+	if p.Database != nil {
+		p.Database.close()
+		p.Database = nil
+	}
 }
 
 func (a *App) selectTab(i int) {
@@ -451,11 +515,30 @@ func contains(n *Node, p *Pane) bool {
 }
 
 func (a *App) currentDir() string {
+	if t := a.tab(); t != nil && t.Focus != nil && t.Focus.Dir != "" {
+		return t.Focus.Dir
+	}
 	if t := a.tab(); t != nil && t.Focus != nil && t.Focus.Info.Dir != "" {
 		return t.Focus.Info.Dir
 	}
 	home, _ := os.UserHomeDir()
 	return home
+}
+
+func (a *App) allPanes() []*Pane {
+	var panes []*Pane
+	for _, t := range a.tabs {
+		panes = append(panes, t.panes()...)
+	}
+	return panes
+}
+
+func (a *App) update(fn func()) {
+	if a.win != nil {
+		a.win.Update(fn)
+	} else {
+		fn()
+	}
 }
 
 func (a *App) newTabDir() string {
@@ -471,6 +554,20 @@ func (a *App) newTabDir() string {
 }
 
 func (p *Pane) label() (string, string) {
+	switch p.Kind {
+	case paneEmpty:
+		return "New pane", "Choose a view"
+	case paneBrowser:
+		if p.Browser != nil {
+			return p.Browser.label()
+		}
+		return "Browser", ""
+	case paneDatabase:
+		if p.Database != nil && p.Database.profile != "" {
+			return p.Database.profile, "Database"
+		}
+		return "Database", "Connections"
+	}
 	name := p.Info.Program
 	if name == "" || p.Info.Idle {
 		name = p.Info.Shell
@@ -502,7 +599,7 @@ func (t *Tab) label() (string, string) {
 	if t.Focus != nil {
 		return t.Focus.label()
 	}
-	return "Terminal", ""
+	return "New pane", ""
 }
 
 type savedLayout struct {
@@ -511,15 +608,22 @@ type savedLayout struct {
 }
 type savedTab struct {
 	Name, Focus, Zoom string
+	FocusID           int        `json:"focus_id,omitempty"`
+	ZoomID            int        `json:"zoom_id,omitempty"`
 	Root              *savedNode `json:"root"`
 }
 type savedNode struct {
-	SID      string     `json:"sid,omitempty"`
-	Dir      string     `json:"dir,omitempty"`
-	Vertical bool       `json:"vertical,omitempty"`
-	Ratio    float32    `json:"ratio,omitempty"`
-	A        *savedNode `json:"a,omitempty"`
-	B        *savedNode `json:"b,omitempty"`
+	ID              int                `json:"id,omitempty"`
+	Kind            string             `json:"kind,omitempty"`
+	SID             string             `json:"sid,omitempty"`
+	Dir             string             `json:"dir,omitempty"`
+	URL             string             `json:"url,omitempty"`
+	DatabaseProfile string             `json:"database_profile,omitempty"`
+	DatabaseView    *savedDatabaseView `json:"database_view,omitempty"`
+	Vertical        bool               `json:"vertical,omitempty"`
+	Ratio           float32            `json:"ratio,omitempty"`
+	A               *savedNode         `json:"a,omitempty"`
+	B               *savedNode         `json:"b,omitempty"`
 }
 
 func saveNode(n *Node) *savedNode {
@@ -527,7 +631,17 @@ func saveNode(n *Node) *savedNode {
 		return nil
 	}
 	if n.Pane != nil {
-		return &savedNode{SID: n.Pane.SID, Dir: n.Pane.Info.Dir}
+		p := n.Pane
+		st := &savedNode{ID: p.ID, Kind: p.Kind, SID: p.SID, Dir: p.Dir}
+		if p.Browser != nil {
+			st.URL = p.Browser.URL
+		}
+		if p.Database != nil {
+			st.DatabaseProfile = p.Database.profile
+			view := saveDatabaseView(p.Database)
+			st.DatabaseView = &view
+		}
+		return st
 	}
 	return &savedNode{Vertical: n.Vertical, Ratio: n.Ratio, A: saveNode(n.A), B: saveNode(n.B)}
 }
@@ -538,9 +652,11 @@ func (a *App) snapshot() savedLayout {
 		st := savedTab{Name: t.Name, Root: saveNode(t.Root)}
 		if t.Focus != nil {
 			st.Focus = t.Focus.SID
+			st.FocusID = t.Focus.ID
 		}
 		if t.Zoom != nil {
 			st.Zoom = t.Zoom.SID
+			st.ZoomID = t.Zoom.ID
 		}
 		out.Tabs = append(out.Tabs, st)
 	}
@@ -575,6 +691,7 @@ func (a *App) saveNow() {
 		log.Printf("save layout: %v", err)
 		return
 	}
+	a.lastSnapshot = string(data)
 	a.saveDue = false
 }
 
@@ -586,6 +703,18 @@ func (a *App) restore() bool {
 	var saved savedLayout
 	if json.Unmarshal(data, &saved) != nil || len(saved.Tabs) == 0 {
 		return false
+	}
+	var visitIDs func(*savedNode)
+	visitIDs = func(n *savedNode) {
+		if n == nil {
+			return
+		}
+		a.nextID = max(a.nextID, n.ID)
+		visitIDs(n.A)
+		visitIDs(n.B)
+	}
+	for _, tab := range saved.Tabs {
+		visitIDs(tab.Root)
 	}
 	list, err := a.client.List()
 	if err != nil {
@@ -604,10 +733,10 @@ func (a *App) restore() bool {
 		panes := t.panes()
 		t.Focus = panes[0]
 		for _, p := range panes {
-			if p.SID == st.Focus {
+			if st.FocusID != 0 && p.ID == st.FocusID || st.FocusID == 0 && p.SID != "" && p.SID == st.Focus {
 				t.Focus = p
 			}
-			if p.SID == st.Zoom {
+			if st.ZoomID != 0 && p.ID == st.ZoomID || st.ZoomID == 0 && p.SID != "" && p.SID == st.Zoom {
 				t.Zoom = p
 			}
 		}
@@ -625,6 +754,7 @@ func (a *App) restoreNode(st *savedNode, parent *Node, tab *Tab, known map[strin
 	if st == nil {
 		return nil
 	}
+	a.nextID = max(a.nextID, st.ID)
 	n := &Node{ID: a.id(), Parent: parent, Vertical: st.Vertical, Ratio: st.Ratio}
 	if st.A != nil && st.B != nil {
 		if n.Ratio <= 0 || n.Ratio >= 1 {
@@ -645,14 +775,39 @@ func (a *App) restoreNode(st *savedNode, parent *Node, tab *Tab, known map[strin
 		return n
 	}
 	var p *Pane
-	if info, ok := known[st.SID]; ok {
-		p, _ = a.attach(info)
-	}
-	if p == nil {
-		p, _ = a.newPane(st.Dir)
+	switch st.Kind {
+	case paneEmpty:
+		p = a.emptyPane(st.Dir)
+	case paneBrowser:
+		p = a.emptyPane(st.Dir)
+		if err := a.startBrowser(p, st.URL); err != nil {
+			p.ChoiceError = err.Error()
+		}
+	case paneDatabase:
+		p = a.emptyPane(st.Dir)
+		a.startDatabase(p)
+		if st.DatabaseView != nil {
+			restoreDatabaseView(p.Database, *st.DatabaseView)
+		}
+		if p.Database.profile == "" {
+			p.Database.profile = st.DatabaseProfile
+		}
+		if p.Database.profile != "" {
+			a.loadDatabaseSchema(p)
+		}
+	default: // Layouts saved before pane kinds contain terminal leaves.
+		if info, ok := known[st.SID]; ok {
+			p, _ = a.attach(info)
+		}
+		if p == nil {
+			p, _ = a.newPane(st.Dir)
+		}
 	}
 	if p == nil {
 		return nil
+	}
+	if st.ID != 0 {
+		p.ID = st.ID
 	}
 	n.Pane = p
 	p.Node, p.Tab = n, tab
@@ -666,6 +821,9 @@ func (a *App) refresh(infos []session.Info) {
 	}
 	for _, t := range a.tabs {
 		for _, p := range t.panes() {
+			if p.Kind != paneTerminal {
+				continue
+			}
 			info, ok := byID[p.SID]
 			if !ok || p.Closed {
 				continue

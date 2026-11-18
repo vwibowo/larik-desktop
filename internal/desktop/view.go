@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -20,6 +21,7 @@ const (
 
 func (a *App) view(c *ui.Context) {
 	a.services = c.Services()
+	a.copyText = func(s string) { c.Services().WriteClipboard(s) }
 	a.runPending()
 	k := a.windowColors(c)
 	c.Root().Background(ui.Transparent)
@@ -43,6 +45,11 @@ func (a *App) view(c *ui.Context) {
 	a.commandPalette(c, k)
 	if a.err != "" {
 		a.errorBanner(c, k)
+	}
+	if !a.saveDue && a.lastSnapshot != "" {
+		if data, err := json.Marshal(a.snapshot()); err == nil && string(data) != a.lastSnapshot {
+			a.changed()
+		}
 	}
 	if a.saveDue {
 		if elapsed := time.Since(a.saveAt); elapsed > 350*time.Millisecond {
@@ -127,7 +134,7 @@ func (a *App) tabsView(c *ui.Context, k *palette) {
 					if j == 2 {
 						break
 					}
-					sfsymbols.Symbol(c, programSymbol(pane.Info.Program)).Size(13).Color(k.muted)
+					sfsymbols.Symbol(c, paneSymbol(pane)).Size(13).Color(k.muted)
 				}
 				if a.renaming == tab {
 					in := ui.TextInput(c, &a.renameText).Grow(1).MinWidth(0).Height(22).AutoFocus()
@@ -167,7 +174,7 @@ func tabAttention(t *Tab) bool {
 }
 func tabBusy(t *Tab) bool {
 	for _, p := range t.panes() {
-		if !p.Info.Idle && time.Since(p.Info.LastOutput) < 1500*time.Millisecond {
+		if p.Kind == paneTerminal && !p.Info.Idle && time.Since(p.Info.LastOutput) < 1500*time.Millisecond {
 			return true
 		}
 	}
@@ -248,31 +255,77 @@ func (a *App) paneCard(c *ui.Context, k *palette, p *Pane) ui.Element {
 	hovered := card.Hovered()
 	card.Children(func() {
 		a.paneHeader(c, pk, p, focused || hovered)
-		if p.FindOpen {
+		if p.Term != nil && p.FindOpen {
 			a.findBar(c, pk, p)
 		}
-		ui.Box(c).Grow(1).MinHeight(0).Padding(0, 5, 6, 5).Children(func() {
-			if p.Term == nil {
-				return
-			}
-			view := terminal.View(c, p.Term).Fill()
-			if a.focusReq == p && a.tab() == p.Tab {
-				view.Focus()
-				a.focusReq = nil
-			}
-			if view.Focused() && p.Tab.Focus != p {
-				a.focus(p)
-			}
-			if view.Focused() {
-				p.Attention = false
-			}
-		})
+		switch p.Kind {
+		case paneBrowser:
+			ui.Column(c).Grow(1).MinHeight(0).Children(func() { a.browserPane(c, pk, p) })
+		case paneDatabase:
+			a.databasePane(c, c.Theme(), p).Grow(1).MinHeight(0)
+		case paneEmpty:
+			a.emptyPaneView(c, pk, p)
+		default:
+			ui.Box(c).Grow(1).MinHeight(0).Padding(0, 5, 6, 5).Children(func() {
+				if p.Term == nil {
+					return
+				}
+				view := terminal.View(c, p.Term).Fill()
+				if a.focusReq == p && a.tab() == p.Tab {
+					view.Focus()
+					a.focusReq = nil
+				}
+				if view.Focused() && p.Tab.Focus != p {
+					a.focus(p)
+				}
+				if view.Focused() {
+					p.Attention = false
+				}
+			})
+		}
 	})
 	p.Bounds = card.Bounds()
 	if card.Clicked() && p.Tab.Focus != p {
 		a.focus(p)
 	}
 	return card
+}
+
+func (a *App) emptyPaneView(c *ui.Context, k *palette, p *Pane) {
+	ui.Column(c).Grow(1).MinHeight(0).Justify(ui.Center).AlignItems(ui.Center).Gap(15).Padding(20).Children(func() {
+		ui.Text(c, "Open a pane").FontSize(20).FontWeight(650).TextColor(k.text)
+		ui.Text(c, "Choose what to work with").FontSize(12.5).TextColor(k.muted)
+		ui.Row(c).Gap(10).Wrap().Justify(ui.Center).Children(func() {
+			for _, option := range []struct {
+				kind, icon, title, detail string
+				available                 bool
+			}{
+				{paneTerminal, "terminal", "Terminal", "Run a shell", true},
+				{paneBrowser, "globe", "Browser", "Open a web page", true},
+				{paneDatabase, "cylinder.split.1x2", "Database", "Browse data", true},
+			} {
+				option := option
+				row := ui.Column(c.Key(option.kind)).Width(145).Height(116).Padding(12).Gap(5).Radius(10).
+					Background(k.track).Border(1, k.border).Role(ui.RoleButton).Label(option.title)
+				if option.available {
+					row.Cursor(ui.CursorPointer)
+				} else {
+					row.Disabled(true)
+				}
+				row.Children(func() {
+					sfsymbols.Symbol(c, option.icon).Size(22).Color(k.muted)
+					ui.Text(c, option.title).FontSize(13).FontWeight(650).TextColor(k.text)
+					ui.Text(c, option.detail).FontSize(11).TextColor(k.muted)
+				})
+				if option.available && row.Clicked() {
+					a.later(c, func() { a.choosePane(p, option.kind) })
+				}
+			}
+		})
+		if p.ChoiceError != "" {
+			ui.Text(c, p.ChoiceError).FontSize(11).TextColor(k.attention)
+		}
+	})
 }
 
 func (a *App) findBar(c *ui.Context, k *palette, p *Pane) {
@@ -329,12 +382,12 @@ func (a *App) paneHeader(c *ui.Context, k *palette, p *Pane, showButtons bool) {
 		a.toggleZoom()
 	}
 	header.Children(func() {
-		sfsymbols.Symbol(c, programSymbol(p.Info.Program)).Size(15).Color(k.text)
+		sfsymbols.Symbol(c, paneSymbol(p)).Size(15).Color(k.text)
 		ui.Text(c, name).FontSize(12.5).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…").Shrink(0)
 		ui.Text(c, dir).FontSize(12).TextColor(k.muted).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
 		if p.Attention {
 			ui.Box(c).Size(7, 7).Radius(4).Background(k.attention)
-		} else if !p.Info.Idle && time.Since(p.Info.LastOutput) < 1500*time.Millisecond {
+		} else if p.Kind == paneTerminal && !p.Info.Idle && time.Since(p.Info.LastOutput) < 1500*time.Millisecond {
 			ui.Box(c).Size(7, 7).Radius(4).Background(k.active)
 		}
 		if showButtons {
@@ -356,6 +409,19 @@ func (a *App) paneHeader(c *ui.Context, k *palette, p *Pane, showButtons bool) {
 			}
 		}
 	})
+}
+
+func paneSymbol(p *Pane) string {
+	switch p.Kind {
+	case paneBrowser:
+		return "globe"
+	case paneDatabase:
+		return "cylinder.split.1x2"
+	case paneEmpty:
+		return "plus.app"
+	default:
+		return programSymbol(p.Info.Program)
+	}
 }
 
 func programSymbol(program string) string {
@@ -397,15 +463,19 @@ func (a *App) hostChip(c *ui.Context, k *palette) {
 		panel.Margin(8, 0, 0, 0).Width(290).Padding(14).Gap(9).Radius(13).Background(k.focused).Border(1, k.border).Shadow(0, 12, 28, 0, k.shadow)
 		ui.Text(c, name).FontSize(15).Bold().TextColor(k.text)
 		hostRow(c, k, "Server", fmt.Sprintf("pid %d", a.serverPID))
-		hostRow(c, k, "Sessions", fmt.Sprintf("%d panes", a.paneCount()))
+		hostRow(c, k, "Sessions", fmt.Sprintf("%d shells", a.sessionCount()))
 		ui.Text(c, "Shells keep running after the window closes.").FontSize(11.5).TextColor(k.muted)
 	})
 }
 
-func (a *App) paneCount() int {
+func (a *App) sessionCount() int {
 	n := 0
 	for _, t := range a.tabs {
-		n += len(t.panes())
+		for _, p := range t.panes() {
+			if p.SID != "" {
+				n++
+			}
+		}
 	}
 	return n
 }

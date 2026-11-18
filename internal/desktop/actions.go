@@ -17,7 +17,7 @@ type action struct {
 
 func (a *App) actions() []action {
 	return []action{
-		{"New tab", "Open another shell", "⌘T", "CmdOrCtrl+T", func(a *App) {
+		{"New tab", "Choose a pane type", "⌘T", "CmdOrCtrl+T", func(a *App) {
 			if a.win == nil {
 				a.openTerminal()
 			} else {
@@ -26,12 +26,12 @@ func (a *App) actions() []action {
 		}},
 		{"Split right", "Add a pane beside this one", "⌘D", "CmdOrCtrl+D", func(a *App) { a.split(false) }},
 		{"Split down", "Add a pane below this one", "⇧⌘D", "CmdOrCtrl+Shift+D", func(a *App) { a.split(true) }},
-		{"Close pane", "End this shell", "⌘W", "CmdOrCtrl+W", func(a *App) {
+		{"Close pane", "Close the focused pane", "⌘W", "CmdOrCtrl+W", func(a *App) {
 			if t := a.tab(); t != nil {
 				a.closePane(t.Focus)
 			}
 		}},
-		{"Close tab", "End every shell in this tab", "⇧⌘W", "CmdOrCtrl+Shift+W", func(a *App) { a.closeTab(a.tab()) }},
+		{"Close tab", "Close every pane in this tab", "⇧⌘W", "CmdOrCtrl+Shift+W", func(a *App) { a.closeTab(a.tab()) }},
 		{"Zoom pane", "Fill the tab with the focused pane", "⇧⌘↩", "CmdOrCtrl+Shift+Enter", func(a *App) { a.toggleZoom() }},
 		{"Equalize panes", "Reset all divider positions", "⌃⌘=", "CmdOrCtrl+Ctrl+=", func(a *App) { a.equalize() }},
 		{"Next tab", "", "⇧⌘]", "CmdOrCtrl+Shift+]", func(a *App) { a.cycleTab(1) }},
@@ -64,6 +64,10 @@ func (a *App) actions() []action {
 		{"Find in pane", "Search the focused terminal and its scrollback", "⌘F", "CmdOrCtrl+F", func(a *App) { a.openFind() }},
 		{"Next match", "Find the next older match", "⌘G", "CmdOrCtrl+G", func(a *App) { a.findNext() }},
 		{"Previous match", "Find the previous newer match", "⇧⌘G", "CmdOrCtrl+Shift+G", func(a *App) { a.findPrevious() }},
+		{"Browser address", "Focus the address of the current browser pane", "⌘L", "CmdOrCtrl+L", func(a *App) { a.browserCommand("address") }},
+		{"Reload page", "Reload the current browser pane", "⌘R", "CmdOrCtrl+R", func(a *App) { a.browserCommand("reload") }},
+		{"Back", "Previous browser page", "⌘[", "CmdOrCtrl+[", func(a *App) { a.browserCommand("back") }},
+		{"Forward", "Next browser page", "⌘]", "CmdOrCtrl+]", func(a *App) { a.browserCommand("forward") }},
 	}
 }
 
@@ -116,7 +120,7 @@ func (a *App) clearFocused() {
 
 func (a *App) restartFocused() {
 	t := a.tab()
-	if t == nil || t.Focus == nil {
+	if t == nil || t.Focus == nil || t.Focus.Kind != paneTerminal {
 		return
 	}
 	old := t.Focus
@@ -174,7 +178,7 @@ func (a *App) menu() *mygo.Menu {
 			{Role: mygo.RoleHide}, {Role: mygo.RoleHideOthers}, {Role: mygo.RoleUnhide},
 			mygo.Separator(), {Role: mygo.RoleQuit},
 		}},
-		{Label: "Shell", Submenu: []*mygo.MenuItem{item(0), mygo.Separator(), item(1), item(2), mygo.Separator(), item(3), item(4), mygo.Separator(), item(19), item(26)}},
+		{Label: "Pane", Submenu: []*mygo.MenuItem{item(0), mygo.Separator(), item(1), item(2), mygo.Separator(), item(3), item(4), mygo.Separator(), item(19), item(26)}},
 		{Label: "Edit", Submenu: []*mygo.MenuItem{{Role: mygo.RoleUndo}, {Role: mygo.RoleRedo}, mygo.Separator(), {Role: mygo.RoleCopy}, {Role: mygo.RolePaste}, {Role: mygo.RoleSelectAll}, mygo.Separator(), item(28), item(29), item(30), mygo.Separator(), item(18)}},
 		{Label: "View", Submenu: []*mygo.MenuItem{
 			{Label: "Command palette", Accelerator: "CmdOrCtrl+Shift+P", Click: func(*mygo.MenuItem, *mygo.Window) {
@@ -204,6 +208,7 @@ func (a *App) menu() *mygo.Menu {
 				}
 			}},
 		}},
+		{Label: "Browser", Submenu: []*mygo.MenuItem{item(31), item(32), mygo.Separator(), item(33), item(34)}},
 		{Role: mygo.RoleWindowMenu},
 	})
 }
