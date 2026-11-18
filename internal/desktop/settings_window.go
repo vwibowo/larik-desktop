@@ -223,6 +223,10 @@ func (a *App) appearanceSettings(c *ui.Context, k *palette) {
 		a.settingCard(c, k, "Color scheme", "Follow macOS or choose an appearance.", "appearance", func() {
 			choiceRow(c, k, a.prefs.Appearance, []choice{{"system", "System"}, {"light", "Light"}, {"dark", "Dark"}}, a.setAppearance)
 		})
+		a.settingToggle(c, k, "Native blur", "Use macOS's translucent window material.", "blur", a.prefs.NativeBlur, func(value bool) {
+			a.updateSettings("blur", func(p *settings) { p.NativeBlur = value })
+		})
+		a.backgroundSettings(c, k)
 		a.themeSetting(c, k, false)
 		a.themeSetting(c, k, true)
 		a.settingCard(c, k, "Terminal font size", "Applies to every open pane immediately.", "font", func() {
@@ -236,9 +240,46 @@ func (a *App) appearanceSettings(c *ui.Context, k *palette) {
 				}
 			})
 		})
-		a.settingToggle(c, k, "Native blur", "Use macOS's translucent window material.", "blur", a.prefs.NativeBlur, func(value bool) {
-			a.updateSettings("blur", func(p *settings) { p.NativeBlur = value })
+	})
+}
+
+func (a *App) backgroundSettings(c *ui.Context, k *palette) {
+	a.settingCard(c, k, "Terminal background", "Choose a color or keep Larik's gradient. Opacity applies with Native Blur.", "background", func() {
+		color := k.top
+		if a.prefs.BackgroundTint != "" {
+			color, _ = parseBackgroundTint(a.prefs.BackgroundTint)
+		}
+		color.A = uint8(a.prefs.BackgroundOpacity*255 + 0.5)
+		ui.Row(c).FillWidth().Height(32).Gap(10).AlignItems(ui.Center).Children(func() {
+			if ui.ColorWell(c, &color).Label("Terminal background color").Changed() {
+				a.updateSettings("background", func(p *settings) {
+					p.BackgroundTint = fmt.Sprintf("#%02X%02X%02X", color.R, color.G, color.B)
+					p.BackgroundOpacity = float64(color.A) / 255
+				})
+			}
+			label := "Larik gradient"
+			if a.prefs.BackgroundTint != "" {
+				label = a.prefs.BackgroundTint
+			}
+			ui.Text(c, label).FontSize(12.5).TextColor(k.text).Grow(1)
+			if ui.Button(c, "Reset").Disabled(a.prefs.BackgroundTint == "" && a.prefs.BackgroundOpacity == defaultBackgroundOpacity).Clicked() {
+				a.updateSettings("background", func(p *settings) {
+					p.BackgroundTint = ""
+					p.BackgroundOpacity = defaultBackgroundOpacity
+				})
+			}
 		})
+		opacity := a.prefs.BackgroundOpacity * 100
+		ui.Row(c).FillWidth().Height(30).Gap(12).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "Background opacity").FontSize(12).TextColor(k.muted).Width(130)
+			if ui.Slider(c, &opacity, 0, 100).Label("Background opacity").Grow(1).Disabled(!a.prefs.NativeBlur).Changed() {
+				a.updateSettings("background", func(p *settings) { p.BackgroundOpacity = opacity / 100 })
+			}
+			ui.Text(c, fmt.Sprintf("%.0f%%", opacity)).FontSize(12).TextColor(k.text).Width(38)
+		})
+		if !a.prefs.NativeBlur {
+			ui.Text(c, "Turn on Native blur to adjust opacity.").FontSize(11.5).TextColor(k.muted)
+		}
 	})
 }
 

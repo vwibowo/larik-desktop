@@ -23,6 +23,7 @@ func registerFonts() {
 
 type palette struct {
 	top, middle, bottom                  ui.Color
+	customBackground                     bool
 	card, focused, border, focusedBorder ui.Color
 	text, muted, faint, hover            ui.Color
 	track, selected, active, attention   ui.Color
@@ -56,7 +57,51 @@ func colors(c *ui.Context) *palette {
 	return &lightPalette
 }
 
+func (a *App) windowColors(c *ui.Context) *palette {
+	k := *colors(c)
+	opacity := float32(a.prefs.BackgroundOpacity)
+	if tint, err := parseBackgroundTint(a.prefs.BackgroundTint); err == nil && a.prefs.BackgroundTint != "" {
+		k.top = tint.Alpha(opacity)
+		k.customBackground = true
+	} else {
+		factor := opacity / defaultBackgroundOpacity
+		k.top = scaleAlpha(k.top, factor)
+		k.middle = scaleAlpha(k.middle, factor)
+		k.bottom = scaleAlpha(k.bottom, factor)
+	}
+	if a.prefs.NativeBlur {
+		k.card = paneAlpha(k.card, opacity)
+		k.focused = paneAlpha(k.focused, opacity)
+	}
+	return &k
+}
+
+func scaleAlpha(color ui.Color, factor float32) ui.Color {
+	color.A = uint8(max(0, min(255, float32(color.A)*factor+0.5)))
+	return color
+}
+
+func paneAlpha(color ui.Color, opacity float32) ui.Color {
+	baseline := float32(color.A) / 255
+	var alpha float32
+	if opacity <= defaultBackgroundOpacity {
+		alpha = baseline * opacity / defaultBackgroundOpacity
+	} else {
+		alpha = baseline + (1-baseline)*(opacity-defaultBackgroundOpacity)/(1-defaultBackgroundOpacity)
+	}
+	color.A = uint8(max(0, min(255, alpha*255+0.5)))
+	return color
+}
+
 func gradient(p *ui.Painter, r ui.Rect, k *palette, solid bool) {
+	if k.customBackground {
+		color := k.top
+		if solid {
+			color.A = 255
+		}
+		p.Fill(r, color, 0)
+		return
+	}
 	top, middle, bottom := k.top, k.middle, k.bottom
 	if solid {
 		top.A, middle.A, bottom.A = 255, 255, 255

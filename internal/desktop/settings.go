@@ -3,37 +3,43 @@ package desktop
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/terminal"
+	"github.com/egoist/mygo/ui"
 
 	"larik/internal/session"
 )
 
 type settings struct {
-	Appearance     string  `json:"appearance"`
-	LightTheme     string  `json:"lightTheme,omitempty"`
-	DarkTheme      string  `json:"darkTheme,omitempty"`
-	FontSize       float32 `json:"fontSize"`
-	NativeBlur     bool    `json:"nativeBlur"`
-	Shell          string  `json:"shell,omitempty"`
-	StartDirectory string  `json:"startDirectory"`
-	CustomDir      string  `json:"customDir,omitempty"`
-	Cursor         string  `json:"cursor"`
-	OptionAsAlt    bool    `json:"optionAsAlt"`
-	CopyOnSelect   bool    `json:"copyOnSelect"`
-	NotifyFinished bool    `json:"notifyFinished"`
-	NotifyBell     bool    `json:"notifyBell"`
-	KeepSessions   bool    `json:"keepSessions"`
+	Appearance        string  `json:"appearance"`
+	BackgroundTint    string  `json:"backgroundTint,omitempty"`
+	BackgroundOpacity float64 `json:"backgroundOpacity"`
+	LightTheme        string  `json:"lightTheme,omitempty"`
+	DarkTheme         string  `json:"darkTheme,omitempty"`
+	FontSize          float32 `json:"fontSize"`
+	NativeBlur        bool    `json:"nativeBlur"`
+	Shell             string  `json:"shell,omitempty"`
+	StartDirectory    string  `json:"startDirectory"`
+	CustomDir         string  `json:"customDir,omitempty"`
+	Cursor            string  `json:"cursor"`
+	OptionAsAlt       bool    `json:"optionAsAlt"`
+	CopyOnSelect      bool    `json:"copyOnSelect"`
+	NotifyFinished    bool    `json:"notifyFinished"`
+	NotifyBell        bool    `json:"notifyBell"`
+	KeepSessions      bool    `json:"keepSessions"`
 }
 
 const defaultFontSize = 12
+const defaultBackgroundOpacity = 0.24
 
 func defaultSettings() settings {
 	return settings{
-		Appearance: "system", FontSize: defaultFontSize, NativeBlur: true,
+		Appearance: "system", BackgroundOpacity: defaultBackgroundOpacity, FontSize: defaultFontSize, NativeBlur: true,
 		StartDirectory: "current", Cursor: "block", NotifyFinished: true, KeepSessions: true,
 	}
 }
@@ -48,6 +54,12 @@ func readSettings() settings {
 	}
 	if p.Appearance != "light" && p.Appearance != "dark" {
 		p.Appearance = "system"
+	}
+	if _, err := parseBackgroundTint(p.BackgroundTint); err != nil {
+		p.BackgroundTint = ""
+	}
+	if math.IsNaN(p.BackgroundOpacity) || math.IsInf(p.BackgroundOpacity, 0) || p.BackgroundOpacity < 0 || p.BackgroundOpacity > 1 {
+		p.BackgroundOpacity = defaultBackgroundOpacity
 	}
 	if p.StartDirectory != "home" && p.StartDirectory != "custom" {
 		p.StartDirectory = "current"
@@ -69,6 +81,12 @@ func readSettings() settings {
 }
 
 func (p settings) validate() error {
+	if _, err := parseBackgroundTint(p.BackgroundTint); err != nil {
+		return fmt.Errorf("background color: %w", err)
+	}
+	if math.IsNaN(p.BackgroundOpacity) || math.IsInf(p.BackgroundOpacity, 0) || p.BackgroundOpacity < 0 || p.BackgroundOpacity > 1 {
+		return fmt.Errorf("background opacity must be between 0 and 100%%")
+	}
 	if p.LightTheme != "" {
 		if _, err := terminal.GhosttyTheme(p.LightTheme); err != nil {
 			return fmt.Errorf("light terminal theme: %w", err)
@@ -98,6 +116,20 @@ func (p settings) validate() error {
 		}
 	}
 	return nil
+}
+
+func parseBackgroundTint(value string) (ui.Color, error) {
+	if value == "" {
+		return ui.Color{}, nil
+	}
+	if len(value) != 7 || value[0] != '#' {
+		return ui.Color{}, fmt.Errorf("use a six-digit hex color")
+	}
+	n, err := strconv.ParseUint(value[1:], 16, 24)
+	if err != nil {
+		return ui.Color{}, fmt.Errorf("use a six-digit hex color")
+	}
+	return ui.RGB(uint8(n>>16), uint8(n>>8), uint8(n)), nil
 }
 
 func (p settings) terminalThemes() (light, dark *terminal.Theme) {

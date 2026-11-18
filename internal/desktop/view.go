@@ -21,7 +21,7 @@ const (
 func (a *App) view(c *ui.Context) {
 	a.services = c.Services()
 	a.runPending()
-	k := colors(c)
+	k := a.windowColors(c)
 	c.Root().Background(ui.Transparent)
 	ui.Column(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) { gradient(p, r, k, !a.prefs.NativeBlur) }).Children(func() {
 		a.titleBar(c, k)
@@ -59,7 +59,11 @@ func (a *App) view(c *ui.Context) {
 
 func (a *App) titleBar(c *ui.Context, k *palette) {
 	left := max(c.TitleBar().Left+12, 82)
-	ui.Row(c).Height(titleHeight).Padding(0, 12, 0, left).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
+	bar := ui.Row(c).Height(titleHeight).Padding(0, 12, 0, left).Gap(12).AlignItems(ui.Center).DragWindow()
+	if k.customBackground {
+		bar.Background(colors(c).focused)
+	}
+	bar.Children(func() {
 		a.hostChip(c, k)
 		a.tabsView(c, k)
 		ui.Spacer(c).MinWidth(30)

@@ -17,7 +17,7 @@ func TestSettingsMigrationAndValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := readSettings()
-	if p.Appearance != "dark" || p.FontSize != 16 || !p.NativeBlur || !p.NotifyFinished || !p.KeepSessions || p.StartDirectory != "current" || p.LightTheme != "" || p.DarkTheme != "" {
+	if p.Appearance != "dark" || p.FontSize != 16 || !p.NativeBlur || !p.NotifyFinished || !p.KeepSessions || p.StartDirectory != "current" || p.LightTheme != "" || p.DarkTheme != "" || p.BackgroundTint != "" || p.BackgroundOpacity != defaultBackgroundOpacity {
 		t.Fatalf("older settings lost defaults: %+v", p)
 	}
 	p.Shell = "relative-shell"
@@ -36,6 +36,16 @@ func TestSettingsMigrationAndValidation(t *testing.T) {
 	p.LightTheme = "no such Ghostty theme"
 	if err := p.validate(); err == nil {
 		t.Fatal("unknown Ghostty theme accepted")
+	}
+	p.LightTheme = ""
+	p.BackgroundTint = "#bad-color"
+	if err := p.validate(); err == nil {
+		t.Fatal("invalid background color accepted")
+	}
+	p.BackgroundTint = "#4285F4"
+	p.BackgroundOpacity = 1.1
+	if err := p.validate(); err == nil {
+		t.Fatal("invalid background opacity accepted")
 	}
 }
 
@@ -71,6 +81,8 @@ func TestSettingsPersistFalseValues(t *testing.T) {
 	p.CopyOnSelect = true
 	p.LightTheme = "Catppuccin Latte"
 	p.DarkTheme = "Catppuccin Mocha"
+	p.BackgroundTint = "#4285F4"
+	p.BackgroundOpacity = 0.35
 	if err := p.save(); err != nil {
 		t.Fatal(err)
 	}
@@ -79,6 +91,63 @@ func TestSettingsPersistFalseValues(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "settings.json.tmp")); !os.IsNotExist(err) {
 		t.Fatalf("temporary settings file remains: %v", err)
+	}
+}
+
+func TestBackgroundColorAndOpacity(t *testing.T) {
+	t.Setenv("LARIK_DESKTOP_DIR", t.TempDir())
+	a := &App{prefs: defaultSettings()}
+	a.updateSettings("background", func(p *settings) {
+		p.BackgroundTint = "#167AAB"
+		p.BackgroundOpacity = 0.5
+	})
+	if a.settingsErr != "" || readSettings().BackgroundTint != "#167AAB" || readSettings().BackgroundOpacity != 0.5 {
+		t.Fatalf("background preference was not saved: %+v, %s", a.prefs, a.settingsErr)
+	}
+	view := ui.NewTester(a.view, 680, 540)
+	pixel := view.Image().RGBAAt(400, 100)
+	if pixel.B <= pixel.R || pixel.A < 120 || pixel.A > 135 {
+		t.Fatalf("custom translucent background pixel = %+v", pixel)
+	}
+	if bar := view.Image().RGBAAt(400, 20); bar == pixel {
+		t.Fatal("custom background left the toolbar without a contrasting surface")
+	}
+	a.prefs.BackgroundOpacity = 0
+	if pixel := ui.NewTester(a.view, 680, 540).Image().RGBAAt(400, 100); pixel.A != 0 {
+		t.Fatalf("zero opacity background alpha = %d", pixel.A)
+	}
+	a.prefs.NativeBlur = false
+	if pixel := ui.NewTester(a.view, 680, 540).Image().RGBAAt(400, 100); pixel.A != 255 || pixel.B <= pixel.R {
+		t.Fatalf("solid custom background pixel = %+v", pixel)
+	}
+	a.prefs.NativeBlur = true
+	a.prefs.BackgroundOpacity = 0.5
+	settingsView := ui.NewTester(a.settingsView, 740, 560)
+	if !settingsView.HasText("Terminal background") || !settingsView.HasText("Background opacity") {
+		t.Fatal("background controls are missing from Appearance")
+	}
+	defaultSettingsView := ui.NewTester((&App{prefs: defaultSettings()}).settingsView, 740, 560)
+	if got, want := settingsView.Image().RGBAAt(400, 5), defaultSettingsView.Image().RGBAAt(400, 5); got != want {
+		t.Fatalf("custom terminal color changed Settings chrome: got %+v, want %+v", got, want)
+	}
+	if err := settingsView.Click("Terminal background color"); err != nil {
+		t.Fatal(err)
+	}
+	if !settingsView.HasText("Green") {
+		t.Fatal("background color picker did not open")
+	}
+	if err := settingsView.Click("Green"); err != nil {
+		t.Fatal(err)
+	}
+	if a.prefs.BackgroundTint != "#22C55E" {
+		t.Fatalf("background color picker selected %q", a.prefs.BackgroundTint)
+	}
+	settingsView.Key(0, ui.KeyEscape)
+	if err := settingsView.Click("Reset"); err != nil {
+		t.Fatal(err)
+	}
+	if a.prefs.BackgroundTint != "" || a.prefs.BackgroundOpacity != defaultBackgroundOpacity {
+		t.Fatalf("Reset did not restore the Larik background: %+v", a.prefs)
 	}
 }
 

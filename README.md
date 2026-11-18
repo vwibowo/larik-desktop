@@ -39,7 +39,7 @@ Drag tabs to reorder them, drag a pane header onto another to swap them, and dra
 
 Find searches the focused pane's screen and scrollback. Return or ⌘G moves to the next older match, ⇧⌘G moves toward newer output, and Escape closes Find.
 
-Settings opens in its own native window. It controls appearance and blur, terminal font and input behavior, the shell and starting folder for new tabs, notifications, and whether closing the terminal window keeps its sessions. Appearance also lets you search Ghostty themes and choose separate light and dark terminal palettes; theme changes apply to open panes immediately. An updated app preserves shells still owned by an older server; a custom shell preference takes effect after those shells end and the server restarts.
+Settings opens in its own native window. It controls appearance, blur, background color and opacity, terminal font and input behavior, the shell and starting folder for new tabs, notifications, and whether closing the terminal window keeps its sessions. The background is solid when Native Blur is off. Appearance also lets you search Ghostty themes and choose separate light and dark terminal palettes; theme changes apply to open panes immediately. An updated app preserves shells still owned by an older server; a custom shell preference takes effect after those shells end and the server restarts.
 
 Sessions are local to this Mac. The host chip shows the local session process; it does not connect to remote hosts.
 
