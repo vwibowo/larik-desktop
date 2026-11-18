@@ -17,6 +17,14 @@ func (a *App) vibrancy() mygo.Vibrancy {
 	return mygo.VibrancyNone
 }
 
+func (a *App) keepTerminalMaterialActive() {
+	// macOS fades an inactive window's visual effect toward an opaque fill.
+	// Settings takes focus, but the terminal should keep its glass material.
+	if a.win != nil {
+		a.win.SetActiveAppearance(a.settingsWin != nil && a.prefs.NativeBlur)
+	}
+}
+
 func (a *App) cursorStyle() terminal.CursorStyle {
 	switch a.prefs.Cursor {
 	case "bar":
@@ -77,6 +85,7 @@ func (a *App) updateSettings(field string, change func(*settings)) {
 				win.SetVibrancy(a.vibrancy())
 			}
 		}
+		a.keepTerminalMaterialActive()
 	}
 	if a.win != nil {
 		a.win.Invalidate()
@@ -109,7 +118,11 @@ func (a *App) openSettings() {
 		Transparent:          true, Vibrancy: a.vibrancy(), Content: ui.View(a.settingsView),
 	})
 	a.settingsWin = win
-	win.OnClosed(func() { a.settingsWin, a.themePickerOpen = nil, false })
+	a.keepTerminalMaterialActive()
+	win.OnClosed(func() {
+		a.settingsWin, a.themePickerOpen = nil, false
+		a.keepTerminalMaterialActive()
+	})
 	win.Focus()
 }
 

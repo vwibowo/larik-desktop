@@ -38,6 +38,12 @@ func Run() error {
 	})
 	// Keep the macOS app in the Dock so activation can recreate its window.
 	mygo.App.OnWindowAllClosed(func() {})
+	mygo.App.OnDidResignActive(func() {
+		if a.win != nil {
+			a.win.SetActiveAppearance(false)
+		}
+	})
+	mygo.App.OnDidBecomeActive(func() { a.keepTerminalMaterialActive() })
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
 		if a.win != nil {
 			a.persistWorkspace()
@@ -77,6 +83,7 @@ func (a *App) open() error {
 		Content:              ui.View(a.view),
 	})
 	a.win = win
+	a.keepTerminalMaterialActive()
 	mygo.App.SetMenu(a.menu())
 	if !a.restore() {
 		home, _ := os.UserHomeDir()
