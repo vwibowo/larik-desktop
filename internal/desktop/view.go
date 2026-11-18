@@ -239,16 +239,13 @@ func (a *App) nodeView(c *ui.Context, k *palette, n *Node) ui.Element {
 func (a *App) paneCard(c *ui.Context, k *palette, p *Pane) ui.Element {
 	focused := p.Tab != nil && p.Tab.Focus == p && a.tab() == p.Tab
 	card := ui.Column(c.Key(p.ID)).Radius(12).Clip().MinWidth(0).MinHeight(0)
-	bg, border := k.card, k.border
-	if focused {
-		bg, border = k.focused, k.focusedBorder
-	}
+	pk, bg, border := a.paneColors(c, k, focused)
 	card.Background(bg).Border(1, border).Shadow(0, 5, 18, 0, k.shadow)
 	hovered := card.Hovered()
 	card.Children(func() {
-		a.paneHeader(c, k, p, focused || hovered)
+		a.paneHeader(c, pk, p, focused || hovered)
 		if p.FindOpen {
-			a.findBar(c, k, p)
+			a.findBar(c, pk, p)
 		}
 		ui.Box(c).Grow(1).MinHeight(0).Padding(0, 5, 6, 5).Children(func() {
 			if p.Term == nil {

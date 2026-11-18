@@ -19,6 +19,8 @@ type settings struct {
 	Appearance        string  `json:"appearance"`
 	BackgroundTint    string  `json:"backgroundTint,omitempty"`
 	BackgroundOpacity float64 `json:"backgroundOpacity"`
+	PaneBackground    string  `json:"paneBackground,omitempty"`
+	PaneTint          string  `json:"paneTint,omitempty"`
 	LightTheme        string  `json:"lightTheme,omitempty"`
 	DarkTheme         string  `json:"darkTheme,omitempty"`
 	FontSize          float32 `json:"fontSize"`
@@ -39,7 +41,7 @@ const defaultBackgroundOpacity = 0.24
 
 func defaultSettings() settings {
 	return settings{
-		Appearance: "system", BackgroundOpacity: defaultBackgroundOpacity, FontSize: defaultFontSize, NativeBlur: true,
+		Appearance: "system", BackgroundOpacity: defaultBackgroundOpacity, PaneBackground: "larik", FontSize: defaultFontSize, NativeBlur: true,
 		StartDirectory: "current", Cursor: "block", NotifyFinished: true, KeepSessions: true,
 	}
 }
@@ -60,6 +62,15 @@ func readSettings() settings {
 	}
 	if math.IsNaN(p.BackgroundOpacity) || math.IsInf(p.BackgroundOpacity, 0) || p.BackgroundOpacity < 0 || p.BackgroundOpacity > 1 {
 		p.BackgroundOpacity = defaultBackgroundOpacity
+	}
+	if p.PaneBackground != "terminal" && p.PaneBackground != "custom" {
+		p.PaneBackground = "larik"
+	}
+	if _, err := parseBackgroundTint(p.PaneTint); err != nil {
+		p.PaneTint = ""
+	}
+	if p.PaneBackground == "custom" && p.PaneTint == "" {
+		p.PaneBackground = "larik"
 	}
 	if p.StartDirectory != "home" && p.StartDirectory != "custom" {
 		p.StartDirectory = "current"
@@ -86,6 +97,15 @@ func (p settings) validate() error {
 	}
 	if math.IsNaN(p.BackgroundOpacity) || math.IsInf(p.BackgroundOpacity, 0) || p.BackgroundOpacity < 0 || p.BackgroundOpacity > 1 {
 		return fmt.Errorf("background opacity must be between 0 and 100%%")
+	}
+	if p.PaneBackground != "larik" && p.PaneBackground != "terminal" && p.PaneBackground != "custom" {
+		return fmt.Errorf("choose a pane background style")
+	}
+	if _, err := parseBackgroundTint(p.PaneTint); err != nil {
+		return fmt.Errorf("pane color: %w", err)
+	}
+	if p.PaneBackground == "custom" && p.PaneTint == "" {
+		return fmt.Errorf("choose a pane color")
 	}
 	if p.LightTheme != "" {
 		if _, err := terminal.GhosttyTheme(p.LightTheme); err != nil {

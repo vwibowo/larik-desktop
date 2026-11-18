@@ -56,4 +56,15 @@ func TestThemeChangeUpdatesOpenPane(t *testing.T) {
 	if bytes.Equal(before, tester.Image().Pix) {
 		t.Fatal("open pane did not redraw with the selected dark theme")
 	}
+	before = bytes.Clone(tester.Image().Pix)
+	a.updateSettings("pane-background", func(s *settings) {
+		s.PaneBackground, s.PaneTint = "custom", "#157DA5"
+	})
+	if a.settingsErr != "" {
+		t.Fatal(a.settingsErr)
+	}
+	tester.Frame()
+	if bytes.Equal(before, tester.Image().Pix) {
+		t.Fatal("open pane did not redraw with the custom background")
+	}
 }

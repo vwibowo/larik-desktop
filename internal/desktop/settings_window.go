@@ -60,8 +60,8 @@ func (a *App) updateSettings(field string, change func(*settings)) {
 	if old.Appearance != next.Appearance {
 		next.applyAppearance()
 	}
-	if old.FontSize != next.FontSize || old.CopyOnSelect != next.CopyOnSelect || old.LightTheme != next.LightTheme || old.DarkTheme != next.DarkTheme {
-		lightTheme, darkTheme := next.terminalThemes()
+	if old.FontSize != next.FontSize || old.CopyOnSelect != next.CopyOnSelect || old.LightTheme != next.LightTheme || old.DarkTheme != next.DarkTheme || old.PaneBackground != next.PaneBackground || old.PaneTint != next.PaneTint {
+		lightTheme, darkTheme := next.viewThemes()
 		for _, t := range a.tabs {
 			for _, p := range t.panes() {
 				if p.Term == nil {
@@ -73,7 +73,7 @@ func (a *App) updateSettings(field string, change func(*settings)) {
 				if old.CopyOnSelect != next.CopyOnSelect {
 					p.Term.SetCopyOnSelect(a.copyOnSelect())
 				}
-				if old.LightTheme != next.LightTheme || old.DarkTheme != next.DarkTheme {
+				if old.LightTheme != next.LightTheme || old.DarkTheme != next.DarkTheme || old.PaneBackground != next.PaneBackground || old.PaneTint != next.PaneTint {
 					p.Term.SetTheme(lightTheme, darkTheme)
 				}
 			}
@@ -240,6 +240,7 @@ func (a *App) appearanceSettings(c *ui.Context, k *palette) {
 			a.updateSettings("blur", func(p *settings) { p.NativeBlur = value })
 		})
 		a.backgroundSettings(c, k)
+		a.paneBackgroundSettings(c, k)
 		a.themeSetting(c, k, false)
 		a.themeSetting(c, k, true)
 		a.settingCard(c, k, "Terminal font size", "Applies to every open pane immediately.", "font", func() {
@@ -292,6 +293,35 @@ func (a *App) backgroundSettings(c *ui.Context, k *palette) {
 		})
 		if !a.prefs.NativeBlur {
 			ui.Text(c, "Turn on Native blur to adjust opacity.").FontSize(11.5).TextColor(k.muted)
+		}
+	})
+}
+
+func (a *App) paneBackgroundSettings(c *ui.Context, k *palette) {
+	a.settingCard(c, k, "Pane background", "Use Larik's surface, follow the active terminal theme, or choose a separate color. Changes apply to open panes.", "pane-background", func() {
+		choiceRow(c, k, a.prefs.PaneBackground,
+			[]choice{{"larik", "Larik"}, {"terminal", "Terminal theme"}, {"custom", "Custom color"}}, func(value string) {
+				a.updateSettings("pane-background", func(p *settings) {
+					p.PaneBackground = value
+					if value == "custom" && p.PaneTint == "" {
+						color := p.paneColor(c.Theme().Dark)
+						p.PaneTint = fmt.Sprintf("#%02X%02X%02X", color.R, color.G, color.B)
+					}
+				})
+			})
+		if a.prefs.PaneBackground == "custom" {
+			color, _ := parseBackgroundTint(a.prefs.PaneTint)
+			ui.Row(c).FillWidth().Height(32).Gap(10).AlignItems(ui.Center).Children(func() {
+				if ui.ColorWell(c, &color).Label("Custom pane color").Changed() {
+					a.updateSettings("pane-background", func(p *settings) {
+						p.PaneTint = fmt.Sprintf("#%02X%02X%02X", color.R, color.G, color.B)
+					})
+				}
+				ui.Text(c, a.prefs.PaneTint).FontSize(12.5).TextColor(k.text)
+			})
+		}
+		if a.prefs.PaneBackground != "larik" && a.prefs.NativeBlur {
+			ui.Text(c, "Pane translucency follows Background opacity above.").FontSize(11.5).TextColor(k.muted)
 		}
 	})
 }

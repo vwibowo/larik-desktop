@@ -17,7 +17,7 @@ func TestSettingsMigrationAndValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := readSettings()
-	if p.Appearance != "dark" || p.FontSize != 16 || !p.NativeBlur || !p.NotifyFinished || !p.KeepSessions || p.StartDirectory != "current" || p.LightTheme != "" || p.DarkTheme != "" || p.BackgroundTint != "" || p.BackgroundOpacity != defaultBackgroundOpacity {
+	if p.Appearance != "dark" || p.FontSize != 16 || !p.NativeBlur || !p.NotifyFinished || !p.KeepSessions || p.StartDirectory != "current" || p.LightTheme != "" || p.DarkTheme != "" || p.BackgroundTint != "" || p.BackgroundOpacity != defaultBackgroundOpacity || p.PaneBackground != "larik" {
 		t.Fatalf("older settings lost defaults: %+v", p)
 	}
 	p.Shell = "relative-shell"
@@ -46,6 +46,19 @@ func TestSettingsMigrationAndValidation(t *testing.T) {
 	p.BackgroundOpacity = 1.1
 	if err := p.validate(); err == nil {
 		t.Fatal("invalid background opacity accepted")
+	}
+	p.BackgroundOpacity = defaultBackgroundOpacity
+	p.PaneBackground = "custom"
+	if err := p.validate(); err == nil {
+		t.Fatal("custom pane without color accepted")
+	}
+	p.PaneTint = "#zzzzzz"
+	if err := p.validate(); err == nil {
+		t.Fatal("invalid pane color accepted")
+	}
+	p.PaneTint = "#4285F4"
+	if err := p.validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -83,6 +96,8 @@ func TestSettingsPersistFalseValues(t *testing.T) {
 	p.DarkTheme = "Catppuccin Mocha"
 	p.BackgroundTint = "#4285F4"
 	p.BackgroundOpacity = 0.35
+	p.PaneBackground = "custom"
+	p.PaneTint = "#245678"
 	if err := p.save(); err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +106,61 @@ func TestSettingsPersistFalseValues(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "settings.json.tmp")); !os.IsNotExist(err) {
 		t.Fatalf("temporary settings file remains: %v", err)
+	}
+}
+
+func TestPaneBackgroundModes(t *testing.T) {
+	t.Setenv("LARIK_DESKTOP_DIR", t.TempDir())
+	p := &Pane{ID: 3, Info: session.Info{Shell: "sh", Dir: "/tmp", Idle: true}}
+	n := &Node{ID: 2, Pane: p}
+	tab := &Tab{ID: 1, Root: n, Focus: p}
+	p.Tab, p.Node = tab, n
+	a := &App{tabs: []*Tab{tab}, prefs: defaultSettings()}
+	image := func() ui.Color {
+		pixel := ui.NewTester(a.view, 800, 500).Image().RGBAAt(400, 250)
+		return ui.RGBA(pixel.R, pixel.G, pixel.B, float32(pixel.A)/255)
+	}
+	larik := image()
+	a.updateSettings("pane-background", func(s *settings) {
+		s.PaneBackground = "terminal"
+		s.LightTheme = "Catppuccin Mocha"
+	})
+	if a.settingsErr != "" {
+		t.Fatal(a.settingsErr)
+	}
+	if themed := image(); themed == larik || themed.R > 160 {
+		t.Fatalf("pane did not follow the selected dark Ghostty color: %+v vs %+v", themed, larik)
+	}
+	a.updateSettings("pane-background", func(s *settings) {
+		s.PaneBackground, s.PaneTint = "custom", "#157DA5"
+	})
+	if a.settingsErr != "" || readSettings().PaneTint != "#157DA5" {
+		t.Fatalf("custom pane color was not saved: %s", a.settingsErr)
+	}
+	if custom := image(); custom.B <= custom.R || custom == larik {
+		t.Fatalf("custom pane did not recolor: %+v", custom)
+	}
+	light, dark := a.prefs.viewThemes()
+	for _, theme := range []*terminal.Theme{light, dark} {
+		if got := contrastRatio(ui.Hex("#157DA5"), theme.Foreground); got < 4.5 {
+			t.Fatalf("custom pane text contrast %.2f is too low", got)
+		}
+	}
+	a.prefs.NativeBlur = false
+	if got := image(); got != ui.Hex("#157DA5") {
+		t.Fatalf("solid custom pane = %+v", got)
+	}
+	a.prefs.NativeBlur = true
+	a.settingsTab = 0
+	controls := ui.NewTester(a.settingsView, 740, 900)
+	if !controls.HasText("Pane background") || !controls.HasText("Custom pane color") || !controls.HasText("Pane translucency follows Background opacity") {
+		t.Fatal("pane background controls are missing from Appearance")
+	}
+	if err := controls.Click("Larik"); err != nil {
+		t.Fatal(err)
+	}
+	if a.prefs.PaneBackground != "larik" {
+		t.Fatal("Larik pane mode did not apply")
 	}
 }
 

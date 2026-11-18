@@ -139,7 +139,7 @@ func (a *App) attach(info session.Info) (*Pane, error) {
 		return nil, err
 	}
 	p := &Pane{ID: a.id(), SID: info.ID, Info: info, Stream: stream}
-	lightTheme, darkTheme := a.prefs.terminalThemes()
+	lightTheme, darkTheme := a.prefs.viewThemes()
 	term, err := terminal.New(terminal.Options{
 		Conn: stream, Font: terminalFont(a.prefs.FontSize),
 		Theme: lightTheme, DarkTheme: darkTheme, Transparent: true,

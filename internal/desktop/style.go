@@ -2,6 +2,7 @@ package desktop
 
 import (
 	_ "embed"
+	"math"
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
@@ -74,6 +75,99 @@ func (a *App) windowColors(c *ui.Context) *palette {
 		k.focused = paneAlpha(k.focused, opacity)
 	}
 	return &k
+}
+
+// paneColors keeps the pane chrome and transparent terminal on one surface.
+func (a *App) paneColors(c *ui.Context, k *palette, focused bool) (*palette, ui.Color, ui.Color) {
+	bg, border := k.card, k.border
+	if focused {
+		bg, border = k.focused, k.focusedBorder
+	}
+	if a.prefs.PaneBackground == "larik" {
+		return k, bg, border
+	}
+	base := a.prefs.paneColor(c.Theme().Dark)
+	bg = ui.RGBA(base.R, base.G, base.B, float32(bg.A)/255)
+	if !a.prefs.NativeBlur {
+		bg.A = 255
+	}
+	if bg.A == 0 {
+		return k, bg, border
+	}
+	pk := *k
+	lightText := contrastRatio(base, ui.Hex("#F7F5F9")) > contrastRatio(base, ui.Hex("#1B1920"))
+	if lightText {
+		pk.text = ui.Hex("#F7F5F9")
+		pk.muted = ui.Hex("#C6C1CC")
+		pk.faint = ui.Hex("#A9A3AF")
+		pk.hover = ui.RGBA(255, 255, 255, 0.10)
+		pk.track = ui.RGBA(255, 255, 255, 0.08)
+		pk.selected = ui.RGBA(255, 255, 255, 0.16)
+		border = ui.RGBA(255, 255, 255, 0.20)
+	} else {
+		pk.text = ui.Hex("#1B1920")
+		pk.muted = ui.Hex("#58535E")
+		pk.faint = ui.Hex("#746E79")
+		pk.hover = ui.RGBA(0, 0, 0, 0.07)
+		pk.track = ui.RGBA(0, 0, 0, 0.05)
+		pk.selected = ui.RGBA(0, 0, 0, 0.11)
+		border = ui.RGBA(0, 0, 0, 0.15)
+	}
+	return &pk, bg, border
+}
+
+func (p settings) paneColor(dark bool) ui.Color {
+	if p.PaneBackground == "custom" {
+		if color, err := parseBackgroundTint(p.PaneTint); err == nil && p.PaneTint != "" {
+			return color
+		}
+	}
+	light, darkTheme := p.terminalThemes()
+	if dark {
+		return darkTheme.Background
+	}
+	return light.Background
+}
+
+func (p settings) viewThemes() (light, dark *terminal.Theme) {
+	light, dark = p.terminalThemes()
+	if p.PaneBackground != "custom" {
+		return light, dark
+	}
+	background := p.paneColor(false)
+	adjust := func(theme *terminal.Theme) *terminal.Theme {
+		copy := *theme
+		if contrastRatio(background, copy.Foreground) < 4.5 {
+			black, white := ui.Hex("#000000"), ui.Hex("#FFFFFF")
+			copy.Foreground = black
+			if contrastRatio(background, white) > contrastRatio(background, black) {
+				copy.Foreground = white
+			}
+		}
+		if copy.Cursor.A != 0 && contrastRatio(background, copy.Cursor) < 3 {
+			copy.Cursor = copy.Foreground
+		}
+		return &copy
+	}
+	return adjust(light), adjust(dark)
+}
+
+func contrastRatio(a, b ui.Color) float64 {
+	luminance := func(c ui.Color) float64 {
+		linear := func(v uint8) float64 {
+			x := float64(v) / 255
+			if x <= 0.04045 {
+				return x / 12.92
+			}
+			return math.Pow((x+0.055)/1.055, 2.4)
+		}
+		return 0.2126*linear(c.R) + 0.7152*linear(c.G) + 0.0722*linear(c.B)
+	}
+	x, y := luminance(a), luminance(b)
+	if x < y {
+		x, y = y, x
+	}
+	return (x + 0.05) / (y + 0.05)
 }
 
 func scaleAlpha(color ui.Color, factor float32) ui.Color {
