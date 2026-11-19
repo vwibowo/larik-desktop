@@ -92,7 +92,7 @@ func TestMixedPaneWindowRestore(t *testing.T) {
 	}
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte("<html><title>Mixed pane fixture</title><body>Browser restored</body></html>"))
+		_, _ = w.Write([]byte("<html><title>Mixed pane fixture</title><body>Browser restored. Browser restored.</body></html>"))
 	}))
 	defer page.Close()
 	browserURL := page.URL + "/fixture"
@@ -182,6 +182,32 @@ func TestMixedPaneWindowRestore(t *testing.T) {
 			return created.browser.Browser != nil && created.browser.Browser.Title == "Mixed pane fixture"
 		})
 	})
+	nativeValue(func() struct{} {
+		a.openFind()
+		created.browser.FindQuery = "Browser restored"
+		a.browserFind(created.browser, false, false)
+		return struct{}{}
+	})
+	waitMixed(t, "browser find results", func() bool {
+		return nativeValue(func() bool {
+			b := created.browser.Browser
+			return b != nil && !b.FindBusy && b.FindResult.Matches == 2 && b.FindResult.Active == 1
+		})
+	})
+	nativeValue(func() struct{} { a.findNext(); return struct{}{} })
+	waitMixed(t, "next browser match", func() bool {
+		return nativeValue(func() bool { return created.browser.Browser.FindResult.Active == 2 })
+	})
+	nativeValue(func() struct{} { a.findPrevious(); return struct{}{} })
+	waitMixed(t, "previous browser match", func() bool {
+		return nativeValue(func() bool { return created.browser.Browser.FindResult.Active == 1 })
+	})
+	nativeValue(func() struct{} { a.closeFind(created.browser); return struct{}{} })
+	if nativeValue(func() bool {
+		return created.browser.FindOpen || created.browser.FindQuery != "" || created.browser.Browser.FindResult.Matches != 0
+	}) {
+		t.Fatal("closing browser find retained query or match status")
+	}
 	waitMixed(t, "SQLite schema", func() bool {
 		return nativeValue(func() bool { return created.database.Database != nil && len(created.database.Database.tables) > 0 })
 	})

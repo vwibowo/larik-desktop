@@ -61,9 +61,9 @@ func (a *App) actions() []action {
 		{"Appearance: Dark", "", "", "", func(a *App) { a.setAppearance("dark") }},
 		{"Quit and end all sessions", "Stop every background shell", "⌥⌘Q", "CmdOrCtrl+Alt+Q", func(a *App) { a.endAll() }},
 		{"Settings…", "Appearance, terminal, notifications, and sessions", "⌘,", "CmdOrCtrl+,", func(a *App) { a.openSettings() }},
-		{"Find in pane", "Search the focused terminal and its scrollback", "⌘F", "CmdOrCtrl+F", func(a *App) { a.openFind() }},
-		{"Next match", "Find the next older match", "⌘G", "CmdOrCtrl+G", func(a *App) { a.findNext() }},
-		{"Previous match", "Find the previous newer match", "⇧⌘G", "CmdOrCtrl+Shift+G", func(a *App) { a.findPrevious() }},
+		{"Find in pane", "Search the focused terminal or browser page", "⌘F", "CmdOrCtrl+F", func(a *App) { a.openFind() }},
+		{"Next match", "Go to the next search match", "⌘G", "CmdOrCtrl+G", func(a *App) { a.findNext() }},
+		{"Previous match", "Go to the previous search match", "⇧⌘G", "CmdOrCtrl+Shift+G", func(a *App) { a.findPrevious() }},
 		{"Browser address", "Focus the address of the current browser pane", "⌘L", "CmdOrCtrl+L", func(a *App) { a.browserCommand("address") }},
 		{"Reload page", "Reload the current browser pane", "⌘R", "CmdOrCtrl+R", func(a *App) { a.browserCommand("reload") }},
 		{"Back", "Previous browser page", "⌘[", "CmdOrCtrl+[", func(a *App) { a.browserCommand("back") }},
@@ -72,8 +72,11 @@ func (a *App) actions() []action {
 }
 
 func (a *App) openFind() {
-	if t := a.tab(); t != nil && t.Focus != nil && t.Focus.Term != nil {
+	if t := a.tab(); t != nil && t.Focus != nil && (t.Focus.Term != nil || t.Focus.Browser != nil) {
 		t.Focus.FindOpen, t.Focus.FindFocus = true, true
+		if t.Focus.Browser != nil {
+			t.Focus.Browser.FocusAddress = false
+		}
 		a.focusReq = nil
 	}
 }
@@ -85,20 +88,38 @@ func (a *App) closeFind(p *Pane) {
 	if p.Term != nil {
 		p.Term.EndSearch()
 	}
+	if p.Browser != nil {
+		a.stopBrowserFind(p)
+		if p.Browser.Web != nil {
+			p.Browser.Web.Focus()
+		}
+	}
 	p.FindOpen, p.FindFocus, p.FindQuery = false, false, ""
 	p.FindStatus = terminal.SearchStatus{}
-	a.focusReq = p
+	if p.Term != nil {
+		a.focusReq = p
+	} else {
+		a.focusReq = nil
+	}
 }
 
 func (a *App) findNext() {
-	if t := a.tab(); t != nil && t.Focus != nil && t.Focus.FindOpen && t.Focus.FindQuery != "" && t.Focus.Term != nil {
-		t.Focus.Term.SearchNext()
+	if t := a.tab(); t != nil && t.Focus != nil && t.Focus.FindOpen && t.Focus.FindQuery != "" {
+		if t.Focus.Term != nil {
+			t.Focus.Term.SearchNext()
+		} else if t.Focus.Browser != nil {
+			a.browserFind(t.Focus, true, false)
+		}
 	}
 }
 
 func (a *App) findPrevious() {
-	if t := a.tab(); t != nil && t.Focus != nil && t.Focus.FindOpen && t.Focus.FindQuery != "" && t.Focus.Term != nil {
-		t.Focus.Term.SearchPrevious()
+	if t := a.tab(); t != nil && t.Focus != nil && t.Focus.FindOpen && t.Focus.FindQuery != "" {
+		if t.Focus.Term != nil {
+			t.Focus.Term.SearchPrevious()
+		} else if t.Focus.Browser != nil {
+			a.browserFind(t.Focus, true, true)
+		}
 	}
 }
 

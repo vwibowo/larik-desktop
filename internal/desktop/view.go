@@ -255,7 +255,7 @@ func (a *App) paneCard(c *ui.Context, k *palette, p *Pane) ui.Element {
 	hovered := card.Hovered()
 	card.Children(func() {
 		a.paneHeader(c, pk, p, focused || hovered)
-		if p.Term != nil && p.FindOpen {
+		if p.FindOpen && (p.Term != nil || p.Browser != nil) {
 			a.findBar(c, pk, p)
 		}
 		switch p.Kind {
@@ -329,41 +329,71 @@ func (a *App) emptyPaneView(c *ui.Context, k *palette, p *Pane) {
 }
 
 func (a *App) findBar(c *ui.Context, k *palette, p *Pane) {
+	placeholder := "Find in terminal"
+	if p.Browser != nil {
+		placeholder = "Find in page"
+	}
 	ui.Row(c).Height(40).Padding(0, 8).Gap(6).AlignItems(ui.Center).Background(k.track).Children(func() {
 		in := ui.TextInputBase(c, &p.FindQuery).Grow(1).MinWidth(80).Height(28).
-			FontSize(12.5).Placeholder("Find in terminal").Background(k.card).
-			Border(1, k.border).Radius(7).Padding(0, 8).Label("Find in terminal")
+			FontSize(12.5).Placeholder(placeholder).Background(k.card).
+			Border(1, k.border).Radius(7).Padding(0, 8).Label(placeholder)
 		if p.FindFocus {
 			in.Focus()
 			p.FindFocus = false
 		}
 		if in.Changed() {
-			p.Term.Search(p.FindQuery)
+			if p.Term != nil {
+				p.Term.Search(p.FindQuery)
+			} else {
+				a.browserFind(p, false, false)
+			}
 		}
 		if in.Submitted() && p.FindQuery != "" {
-			p.Term.SearchNext()
+			if p.Term != nil {
+				p.Term.SearchNext()
+			} else {
+				a.browserFind(p, true, false)
+			}
 		}
 		if in.Shortcut(0, ui.KeyEscape) {
 			a.closeFind(p)
 		}
 		status := ""
 		if p.FindQuery != "" {
-			status = fmt.Sprintf("%d of %d", p.FindStatus.Selected, p.FindStatus.Total)
-			if p.FindStatus.Searching {
-				status += "…"
+			if p.Term != nil {
+				status = fmt.Sprintf("%d of %d", p.FindStatus.Selected, p.FindStatus.Total)
+				if p.FindStatus.Searching {
+					status += "…"
+				}
+			} else if p.Browser != nil {
+				status = fmt.Sprintf("%d of %d", p.Browser.FindResult.Active, p.Browser.FindResult.Matches)
+				if p.Browser.FindBusy {
+					status += "…"
+				}
 			}
 		}
 		ui.Text(c, status).Width(66).FontSize(11.5).TextColor(k.muted).SingleLine()
 		if chromeButton(c, k, "chevron.up", "Previous match").Clicked() {
-			p.Term.SearchPrevious()
+			if p.Term != nil {
+				p.Term.SearchPrevious()
+			} else {
+				a.browserFind(p, true, true)
+			}
 		}
 		if chromeButton(c, k, "chevron.down", "Next match").Clicked() {
-			p.Term.SearchNext()
+			if p.Term != nil {
+				p.Term.SearchNext()
+			} else {
+				a.browserFind(p, true, false)
+			}
 		}
 		if chromeButton(c, k, "xmark", "Close find").Clicked() {
 			a.closeFind(p)
 		}
 	})
+	if p.Browser != nil && p.Browser.FindError != "" {
+		ui.Text(c, p.Browser.FindError).FontSize(11).TextColor(k.attention).Padding(2, 9)
+	}
 	ui.Box(c).Height(1).FillWidth().Background(k.border)
 }
 

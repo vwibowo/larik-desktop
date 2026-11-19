@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/sfsymbols"
@@ -35,10 +36,16 @@ type browserState struct {
 	Loading      bool
 	Error        string
 	FocusAddress bool
+	FindResult   mygo.FindResult
+	FindError    string
+	FindBusy     bool
+	findSeq      uint64
+	findMu       sync.Mutex
 	off          []func()
 }
 
 func (b *browserState) close() {
+	b.findSeq++
 	for _, off := range b.off {
 		off()
 	}
@@ -109,6 +116,10 @@ func (a *App) startBrowser(p *Pane, raw string) error {
 		u := page.URL()
 		update(func() {
 			if u != "" {
+				if b.URL != u {
+					b.findSeq++
+					b.FindResult, b.FindError, b.FindBusy = mygo.FindResult{}, "", false
+				}
 				b.URL = u
 				if u == blankPage {
 					b.Address = ""
@@ -123,7 +134,15 @@ func (a *App) startBrowser(p *Pane, raw string) error {
 	b.off = append(b.off,
 		page.OnDidNavigate(func(string) { syncNavigation() }),
 		page.OnPageTitleUpdated(func(e *mygo.TitleEvent) { update(func() { b.Title = e.Title }) }),
-		page.OnDidFinishLoad(func() { syncNavigation(); update(func() { b.Loading = false }) }),
+		page.OnDidFinishLoad(func() {
+			syncNavigation()
+			update(func() {
+				b.Loading = false
+				if p.FindOpen && p.FindQuery != "" {
+					a.browserFind(p, false, false)
+				}
+			})
+		}),
 		page.OnDidFailLoad(func(e *mygo.LoadError) {
 			update(func() { b.Loading, b.Error = false, e.Error() })
 		}),
@@ -212,9 +231,59 @@ func (a *App) navigateBrowser(p *Pane) {
 		b.Error = err.Error()
 		return
 	}
+	b.findSeq++
+	b.FindResult, b.FindError, b.FindBusy = mygo.FindResult{}, "", false
 	b.URL, b.Address, b.Error, b.Loading = u, u, "", true
 	b.Web.Focus()
 	a.changed()
+}
+
+func (a *App) stopBrowserFind(p *Pane) {
+	b := p.Browser
+	if b == nil {
+		return
+	}
+	b.findSeq++
+	b.FindResult, b.FindError, b.FindBusy = mygo.FindResult{}, "", false
+	if b.Web == nil {
+		return
+	}
+	page := b.Web.Page()
+	go func() {
+		b.findMu.Lock()
+		defer b.findMu.Unlock()
+		page.StopFindInPage()
+	}()
+}
+
+func (a *App) browserFind(p *Pane, next, backward bool) {
+	b := p.Browser
+	if b == nil || b.Web == nil || a.win == nil {
+		return
+	}
+	query := p.FindQuery
+	if query == "" {
+		a.stopBrowserFind(p)
+		return
+	}
+	b.findSeq++
+	seq := b.findSeq
+	b.FindBusy, b.FindError = true, ""
+	page, win := b.Web.Page(), a.win
+	go func() {
+		b.findMu.Lock()
+		result, err := page.FindInPage(query, mygo.FindOptions{FindNext: next, Backward: backward})
+		b.findMu.Unlock()
+		win.Update(func() {
+			if p.Closed || p.Browser != b || !p.FindOpen || p.FindQuery != query || b.findSeq != seq {
+				return
+			}
+			b.FindResult, b.FindBusy = result, false
+			if err != nil {
+				b.FindError = err.Error()
+			}
+		})
+	}()
 }
 
 func (a *App) browserCommand(command string) {
