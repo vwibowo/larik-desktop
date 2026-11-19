@@ -76,6 +76,7 @@ func (a *App) openFind() {
 		t.Focus.FindOpen, t.Focus.FindFocus = true, true
 		if t.Focus.Browser != nil {
 			t.Focus.Browser.FocusAddress = false
+			focusNativeUI(a.win)
 		}
 		a.focusReq = nil
 	}

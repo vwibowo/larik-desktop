@@ -182,12 +182,21 @@ func TestMixedPaneWindowRestore(t *testing.T) {
 			return created.browser.Browser != nil && created.browser.Browser.Title == "Mixed pane fixture"
 		})
 	})
-	nativeValue(func() struct{} {
+	if err := nativeValue(func() error {
+		created.browser.Browser.Web.Focus()
+		if nativeUIHasKeyboard(a.win) {
+			return fmt.Errorf("browser page did not take the keyboard")
+		}
 		a.openFind()
+		if !nativeUIHasKeyboard(a.win) {
+			return fmt.Errorf("Find did not return the keyboard to the native UI")
+		}
 		created.browser.FindQuery = "Browser restored"
 		a.browserFind(created.browser, false, false)
-		return struct{}{}
-	})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	waitMixed(t, "browser find results", func() bool {
 		return nativeValue(func() bool {
 			b := created.browser.Browser
