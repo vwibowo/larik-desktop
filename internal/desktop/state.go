@@ -67,6 +67,7 @@ type Tab struct {
 type App struct {
 	win             *mygo.Window
 	newWebView      func(string) (*mygo.WebView, error)
+	chooseDownload  func(string) (string, error)
 	client          *session.Client
 	databaseStore   *databaseStore
 	bookmarks       *bookmarkStore

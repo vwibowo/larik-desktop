@@ -20,6 +20,8 @@ Browser panes use macOS WKWebView with an address/search field, back, forward, r
 
 Use the star in a browser pane to save or remove its current page. The book button opens a searchable bookmark list where saved pages can be opened in that pane or removed. Bookmarks are stored separately from session layouts and remain when Keep Sessions is off.
 
+Downloads from browser panes ask where to save the file. The pane shows completion or failure, and a completed download can be revealed in Finder.
+
 Database panes provide read-only SQLite, PostgreSQL, MySQL/MariaDB, and SQL Server access. Create a connection in the pane, browse schema objects and rows, run bounded read-only SQL, inspect results, and export loaded rows as CSV. Connection profiles are stored only for this app in its data directory; direct passwords use a separate macOS Keychain service. Closing a database pane cancels its active work.
 
 ## Workspace controls

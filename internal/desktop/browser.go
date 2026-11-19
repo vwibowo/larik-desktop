@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,19 +30,22 @@ func browserSessionForMacOS(version string) *mygo.Session {
 }
 
 type browserState struct {
-	Web          *mygo.WebView
-	URL          string
-	Address      string
-	Title        string
-	Loading      bool
-	Error        string
-	FocusAddress bool
-	FindResult   mygo.FindResult
-	FindError    string
-	FindBusy     bool
-	findSeq      uint64
-	findMu       sync.Mutex
-	off          []func()
+	Web            *mygo.WebView
+	URL            string
+	Address        string
+	Title          string
+	Loading        bool
+	Error          string
+	FocusAddress   bool
+	FindResult     mygo.FindResult
+	FindError      string
+	FindBusy       bool
+	DownloadStatus string
+	DownloadPath   string
+	DownloadError  bool
+	findSeq        uint64
+	findMu         sync.Mutex
+	off            []func()
 }
 
 func (b *browserState) close() {
@@ -146,6 +150,46 @@ func (a *App) startBrowser(p *Pane, raw string) error {
 		}),
 		page.OnDidFailLoad(func(e *mygo.LoadError) {
 			update(func() { b.Loading, b.Error = false, e.Error() })
+		}),
+		page.OnWillDownload(func(e *mygo.DownloadEvent) {
+			choose := a.chooseDownload
+			if choose == nil {
+				choose = func(defaultPath string) (string, error) {
+					return mygo.Dialog.Save(mygo.SaveDialogOptions{
+						Parent: a.win, Title: "Save browser download", DefaultPath: defaultPath,
+					})
+				}
+			}
+			path, err := choose(e.Path)
+			if p.Closed || a.win != web.Window() {
+				e.PreventDefault()
+				return
+			}
+			if err != nil {
+				e.PreventDefault()
+				update(func() {
+					b.DownloadStatus, b.DownloadError, b.DownloadPath = "Download could not start: "+err.Error(), true, ""
+				})
+				return
+			}
+			if path == "" {
+				e.PreventDefault()
+				update(func() { b.DownloadStatus, b.DownloadError, b.DownloadPath = "Download canceled", false, "" })
+				return
+			}
+			e.Path = path
+			update(func() {
+				b.DownloadStatus, b.DownloadError, b.DownloadPath = "Downloading "+filepath.Base(path)+"…", false, ""
+			})
+		}),
+		page.OnDownloadDone(func(d *mygo.Download) {
+			update(func() {
+				if d.Err != nil {
+					b.DownloadStatus, b.DownloadError, b.DownloadPath = "Download failed: "+d.Err.Error(), true, ""
+				} else {
+					b.DownloadStatus, b.DownloadError, b.DownloadPath = "Saved "+filepath.Base(d.Path), false, d.Path
+				}
+			})
 		}),
 	)
 	page.SetWindowOpenHandler(func(req mygo.WindowOpenRequest) *mygo.WindowOptions {
@@ -360,6 +404,21 @@ func (a *App) browserPane(c *ui.Context, k *palette, p *Pane) {
 	})
 	if a.bookmarkError != "" {
 		ui.Text(c, a.bookmarkError).FontSize(11).TextColor(k.attention).Padding(2, 9)
+	}
+	if b.DownloadStatus != "" {
+		ui.Row(c).Height(28).Padding(0, 9).Gap(8).AlignItems(ui.Center).Background(k.track).Children(func() {
+			color := k.muted
+			if b.DownloadError {
+				color = k.attention
+			}
+			ui.Text(c, b.DownloadStatus).Grow(1).MinWidth(0).FontSize(11).TextColor(color).SingleLine().Ellipsis("…")
+			if b.DownloadPath != "" && ui.Button(c, "Show in Finder").Clicked() {
+				mygo.Shell.ShowItemInFolder(b.DownloadPath)
+			}
+			if chromeButton(c, k, "xmark", "Dismiss download status").Clicked() {
+				b.DownloadStatus, b.DownloadPath = "", ""
+			}
+		})
 	}
 	if b.Error != "" {
 		ui.Row(c).Padding(5, 10).Background(k.track).Children(func() {

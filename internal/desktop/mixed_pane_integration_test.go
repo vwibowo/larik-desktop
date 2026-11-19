@@ -5,6 +5,7 @@ package desktop
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -91,6 +92,12 @@ func TestMixedPaneWindowRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/attachment" {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Header().Set("Content-Disposition", `attachment; filename="fixture.txt"`)
+			_, _ = w.Write([]byte("LARIK_DOWNLOAD_OK"))
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte("<html><title>Mixed pane fixture</title><body>Browser restored. Browser restored.</body></html>"))
 	}))
@@ -119,7 +126,8 @@ func TestMixedPaneWindowRestore(t *testing.T) {
 		}
 	})
 
-	a := &App{prefs: defaultSettings()}
+	downloadPath := filepath.Join(dir, "fixture.txt")
+	a := &App{prefs: defaultSettings(), chooseDownload: func(string) (string, error) { return downloadPath, nil }}
 	t.Cleanup(func() {
 		nativeValue(func() struct{} {
 			if a.win != nil {
@@ -180,6 +188,37 @@ func TestMixedPaneWindowRestore(t *testing.T) {
 	waitMixed(t, "browser page title", func() bool {
 		return nativeValue(func() bool {
 			return created.browser.Browser != nil && created.browser.Browser.Title == "Mixed pane fixture"
+		})
+	})
+	if err := nativeValue(func() error { return created.browser.Browser.Web.Page().LoadURL(page.URL + "/attachment") }); err != nil {
+		t.Fatal(err)
+	}
+	waitMixed(t, "browser download", func() bool {
+		data, err := os.ReadFile(downloadPath)
+		return err == nil && string(data) == "LARIK_DOWNLOAD_OK" && nativeValue(func() bool {
+			return created.browser.Browser.DownloadPath == downloadPath
+		})
+	})
+	nativeValue(func() struct{} {
+		a.chooseDownload = func(string) (string, error) { return "", nil }
+		return struct{}{}
+	})
+	if err := nativeValue(func() error { return created.browser.Browser.Web.Page().LoadURL(page.URL + "/attachment?cancel") }); err != nil {
+		t.Fatal(err)
+	}
+	waitMixed(t, "canceled browser download", func() bool {
+		return nativeValue(func() bool { return created.browser.Browser.DownloadStatus == "Download canceled" })
+	})
+	nativeValue(func() struct{} {
+		a.chooseDownload = func(string) (string, error) { return "", errors.New("save panel unavailable") }
+		return struct{}{}
+	})
+	if err := nativeValue(func() error { return created.browser.Browser.Web.Page().LoadURL(page.URL + "/attachment?failure") }); err != nil {
+		t.Fatal(err)
+	}
+	waitMixed(t, "browser download save error", func() bool {
+		return nativeValue(func() bool {
+			return created.browser.Browser.DownloadError && strings.Contains(created.browser.Browser.DownloadStatus, "save panel unavailable")
 		})
 	})
 	if err := nativeValue(func() error {
