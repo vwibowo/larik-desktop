@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/sfsymbols"
@@ -45,6 +46,10 @@ type browserState struct {
 	DownloadError  bool
 	findSeq        uint64
 	findMu         sync.Mutex
+	agentMu        sync.Mutex
+	navSeq         atomic.Uint64
+	snapshotSeq    uint64
+	snapshotURL    string
 	off            []func()
 }
 
@@ -137,7 +142,7 @@ func (a *App) startBrowser(p *Pane, raw string) error {
 		})
 	}
 	b.off = append(b.off,
-		page.OnDidNavigate(func(string) { syncNavigation() }),
+		page.OnDidNavigate(func(string) { b.navSeq.Add(1); syncNavigation() }),
 		page.OnPageTitleUpdated(func(e *mygo.TitleEvent) { update(func() { b.Title = e.Title }) }),
 		page.OnDidFinishLoad(func() {
 			syncNavigation()

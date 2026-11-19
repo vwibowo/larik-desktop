@@ -55,6 +55,22 @@ Settings opens in its own native window. It controls appearance, blur, backgroun
 
 Sessions are local to this Mac. The host chip shows the local session process; it does not connect to remote hosts.
 
+## Agent control
+
+Larik Desktop can be controlled by local Codex, OpenCode, and Claude Code sessions. Install the app first, then use **Settings → Agents → Install skills** or `./larik-desktop skills install`. This installs the separate `larik-workspace`, `larik-native-browser`, and `larik-database` skills for Codex and OpenCode under `~/.agents/skills`, with links for Claude Code under `~/.claude/skills`. Start a fresh agent session after installing. `skills status` and `skills remove` inspect or remove only these Larik Desktop managed skills. The older Larik app's skills are left intact.
+
+For another agent harness, choose its existing skills folder in **Settings → Agents → Install in another agent…** or run `skills install --dir /absolute/path/to/skills`. The [agent skills guide](docs/agent-skills.md) explains installation, removal, and how to write a harness-specific skill from the included starter.
+
+The skills call the installed executable at `~/Applications/larik-desktop.app/Contents/MacOS/larik-desktop`. A first control request shows a native access prompt with the agent name and process path. Approved agents are listed in Settings → Agents and can be revoked there. These grants supplement each agent's own shell permissions; other programs running as the same macOS user can imitate an agent, so do not treat grants as a separate security boundary.
+
+```sh
+~/Applications/larik-desktop.app/Contents/MacOS/larik-desktop control list --json
+~/Applications/larik-desktop.app/Contents/MacOS/larik-desktop control open --kind browser --url http://localhost:3000
+~/Applications/larik-desktop.app/Contents/MacOS/larik-desktop control database profiles
+```
+
+`control launch` opens the native window. `control open`, `choose`, `focus`, and `close` use exact pane IDs returned by `control list`. Terminal send/read and layout listing can reach existing detached shells after the window closes; browser and database operations need the window. Database commands expose only profiles whose **Agent access** option is enabled, and use the same read-only query limits as the pane. `control browser snapshot` supplies element refs for click/type; take a new snapshot after navigation. `control browser eval` explicitly runs JavaScript in the page.
+
 ## Check
 
 ```sh

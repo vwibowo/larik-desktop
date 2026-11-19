@@ -11,12 +11,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/terminal"
+	"larik/internal/control"
 	"larik/internal/database"
 	"larik/internal/session"
 )
@@ -99,7 +101,7 @@ func TestMixedPaneWindowRestore(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte("<html><title>Mixed pane fixture</title><body>Browser restored. Browser restored.</body></html>"))
+		_, _ = w.Write([]byte(`<html><title>Mixed pane fixture</title><body>Browser restored. Browser restored.<input placeholder="Agent input"><button onclick="document.title='Agent clicked'">Agent action</button></body></html>`))
 	}))
 	defer page.Close()
 	browserURL := page.URL + "/fixture"
@@ -165,7 +167,7 @@ func TestMixedPaneWindowRestore(t *testing.T) {
 			return initial{err: fmt.Errorf("database chooser failed")}
 		}
 		if err := a.databaseStore.save(map[string]database.ConnectionConfig{
-			"fixture": {Driver: "sqlite", Path: dbPath},
+			"fixture": {Driver: "sqlite", Path: dbPath, AgentAccess: true},
 		}); err != nil {
 			return initial{err: err}
 		}
@@ -351,6 +353,58 @@ func TestMixedPaneWindowRestore(t *testing.T) {
 	waitMixed(t, "restored database schema", func() bool {
 		return nativeValue(func() bool { return restored.database.Database != nil && len(restored.database.Database.tables) > 0 })
 	})
+	profiles := a.controlDatabase(control.Request{Op: "database.profiles"})
+	if profiles.Error != "" || len(profiles.Value.([]database.Profile)) != 1 {
+		t.Fatalf("agent database profiles: %+v", profiles)
+	}
+	query := a.controlDatabase(control.Request{Op: "database.query", Profile: "fixture", SQL: "SELECT label FROM sample_items", Limit: 5})
+	if query.Error != "" || len(query.Value.(database.Result).Rows) != 2 {
+		t.Fatalf("agent database query: %+v", query)
+	}
+	browserID := restored.browser.ID
+	snapshot := a.controlBrowser(control.Request{Op: "browser.snapshot", Pane: browserID})
+	if snapshot.Error != "" {
+		t.Fatalf("agent browser snapshot: %+v", snapshot)
+	}
+	outline, ok := snapshot.Value.(map[string]any)
+	if !ok {
+		t.Fatalf("browser snapshot type: %T", snapshot.Value)
+	}
+	refFor := func(label string) string {
+		for _, line := range strings.Split(fmt.Sprint(outline["text"]), "\n") {
+			if strings.Contains(line, label) {
+				if match := regexp.MustCompile(`ref=(e[0-9]+)`).FindStringSubmatch(line); len(match) == 2 {
+					return match[1]
+				}
+			}
+		}
+		return ""
+	}
+	inputRef, buttonRef := refFor("Agent input"), refFor("Agent action")
+	if inputRef == "" || buttonRef == "" {
+		t.Fatalf("interactive refs missing: %+v", outline)
+	}
+	if res := a.controlBrowser(control.Request{Op: "browser.type", Pane: browserID, Ref: inputRef, Text: "Ada"}); res.Error != "" {
+		t.Fatalf("agent browser type: %+v", res)
+	}
+	if res := a.controlBrowser(control.Request{Op: "browser.eval", Pane: browserID, Text: "document.querySelector('input').value"}); res.Error != "" || res.Value != "Ada" {
+		t.Fatalf("typed browser value: %+v", res)
+	}
+	if res := a.controlBrowser(control.Request{Op: "browser.click", Pane: browserID, Ref: buttonRef}); res.Error != "" {
+		t.Fatalf("agent browser click: %+v", res)
+	}
+	if res := a.controlBrowser(control.Request{Op: "browser.eval", Pane: browserID, Text: "document.title"}); res.Error != "" || res.Value != "Agent clicked" {
+		t.Fatalf("clicked browser title: %+v", res)
+	}
+	if res := a.controlBrowser(control.Request{Op: "browser.screenshot", Pane: browserID}); res.Error != "" || len(res.PNG) < 8 || string(res.PNG[:4]) != "\x89PNG" {
+		t.Fatalf("agent browser screenshot: error=%q bytes=%d", res.Error, len(res.PNG))
+	}
+	if res := a.controlBrowser(control.Request{Op: "browser.navigate", Pane: browserID, URL: browserURL}); res.Error != "" {
+		t.Fatalf("agent browser navigate: %+v", res)
+	}
+	if res := a.controlBrowser(control.Request{Op: "browser.click", Pane: browserID, Ref: buttonRef}); !strings.Contains(res.Error, "fresh snapshot") {
+		t.Fatalf("stale browser ref: %+v", res)
+	}
 	waitMixed(t, "restored terminal screen", func() bool { return strings.Contains(restored.terminal.Term.Text(), "MIXED_RESTORE_OK") })
 	list, err = client.List()
 	if err != nil || len(list) != 1 || list[0].PID != originalPID {

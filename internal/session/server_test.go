@@ -58,6 +58,9 @@ func TestSessionSurvivesDetach(t *testing.T) {
 	if _, _, capabilities, err := c.HelloCapabilities(); err != nil || !slices.Contains(capabilities, ShellOverrideCapability) {
 		t.Fatalf("shell capability missing: %v, %v", capabilities, err)
 	}
+	if capable, err := c.TerminalControl(); err != nil || !capable {
+		t.Fatalf("terminal control capability missing: %v, %v", capable, err)
+	}
 	workDir := t.TempDir()
 	info, err := c.Create(workDir)
 	if err != nil {
@@ -101,6 +104,22 @@ func TestSessionSurvivesDetach(t *testing.T) {
 	stream.Close()
 	if list, err := c.List(); err != nil || len(list) != 1 || list[0].Exited {
 		t.Fatalf("session ended on detach: %+v, %v", list, err)
+	}
+	if err := c.Write(info.ID, "printf '\\101\\107\\105\\116\\124\\137\\103\\117\\116\\124\\122\\117\\114\\137\\117\\113\\n'\r"); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(3 * time.Second); ; {
+		text, err := c.Read(info.ID, 20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(text, "AGENT_CONTROL_OK") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("detached terminal output missing: %q", text)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	stream, err = c.Attach(info.ID)
 	if err != nil {

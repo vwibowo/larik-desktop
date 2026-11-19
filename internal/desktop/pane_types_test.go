@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"larik/internal/control"
 	"larik/internal/session"
 )
 
@@ -83,7 +84,7 @@ func TestMixedPaneSnapshotAndLegacyLayout(t *testing.T) {
 	browser := &Pane{ID: 11, Kind: paneBrowser, Dir: "/tmp", Browser: &browserState{URL: "https://example.com"}}
 	empty := &Pane{ID: 12, Kind: paneEmpty, Dir: "/tmp"}
 	root := &Node{Ratio: 0.5, A: &Node{Pane: terminal}, B: &Node{Ratio: 0.5, A: &Node{Pane: browser}, B: &Node{Pane: empty}}}
-	tab := &Tab{Root: root, Focus: browser, Zoom: browser}
+	tab := &Tab{ID: 18, Root: root, Focus: browser, Zoom: browser}
 	a := &App{tabs: []*Tab{tab}}
 	data, err := json.Marshal(a.snapshot())
 	if err != nil {
@@ -94,15 +95,61 @@ func TestMixedPaneSnapshotAndLegacyLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := saved.Tabs[0]
-	if st.FocusID != browser.ID || st.ZoomID != browser.ID || st.Root.A.Kind != paneTerminal || st.Root.B.A.URL != "https://example.com" || st.Root.B.B.Kind != paneEmpty {
+	if st.ID != 18 || st.FocusID != browser.ID || st.ZoomID != browser.ID || st.Root.A.Kind != paneTerminal || st.Root.B.A.URL != "https://example.com" || st.Root.B.B.Kind != paneEmpty {
 		t.Fatalf("mixed layout lost pane state: %+v", st)
 	}
 	legacy := `{"active":0,"tabs":[{"focus":"shell-1","root":{"sid":"shell-1","dir":"/tmp"}}]}`
+	saved = savedLayout{}
 	if err := json.Unmarshal([]byte(legacy), &saved); err != nil {
 		t.Fatal(err)
 	}
 	if saved.Tabs[0].Root.Kind != "" || saved.Tabs[0].Root.SID != "shell-1" || saved.Tabs[0].Focus != "shell-1" {
 		t.Fatalf("legacy terminal layout changed: %+v", saved.Tabs[0])
+	}
+	if saved.Tabs[0].ID != 0 {
+		t.Fatal("legacy tab unexpectedly gained an ID before restore")
+	}
+}
+
+func TestControlPaneTargetingAndFailure(t *testing.T) {
+	a := &App{prefs: defaultSettings(), newWebView: func(string) (*mygo.WebView, error) { return nil, errors.New("WKWebView unavailable") }}
+	if err := a.newTab("/tmp"); err != nil {
+		t.Fatal(err)
+	}
+	first := a.tab().Focus
+	firstTab := a.tab().ID
+	opened := a.controlUI(control.Request{Op: "open", Kind: paneEmpty, Split: "right", Pane: first.ID})
+	if opened.Error != "" || opened.Pane == nil || opened.Pane.ID == first.ID || opened.Tab.ID != firstTab {
+		t.Fatalf("split open = %+v", opened)
+	}
+	second := opened.Pane.ID
+	if got := a.controlUI(control.Request{Op: "choose", Pane: second, Kind: paneBrowser}); !strings.Contains(got.Error, "WKWebView unavailable") {
+		t.Fatalf("browser failure = %+v", got)
+	}
+	if a.paneByID(second).Kind != paneEmpty {
+		t.Fatal("failed browser choice consumed the pane")
+	}
+	if got := a.controlUI(control.Request{Op: "focus", Pane: first.ID}); got.Error != "" || !got.Pane.Focused {
+		t.Fatalf("focus = %+v", got)
+	}
+	if got := a.controlUI(control.Request{Op: "close", Pane: second}); got.Error != "" || a.paneByID(second) != nil {
+		t.Fatalf("close = %+v", got)
+	}
+}
+
+func TestBrowserAgentRefsExpireOnNavigation(t *testing.T) {
+	b := &browserState{snapshotURL: "https://example.com", snapshotSeq: 4}
+	b.navSeq.Store(4)
+	if !b.freshAgentSnapshot("https://example.com") {
+		t.Fatal("fresh snapshot rejected")
+	}
+	b.navSeq.Add(1)
+	if b.freshAgentSnapshot("https://example.com") {
+		t.Fatal("navigation kept old refs alive")
+	}
+	b.snapshotSeq = b.navSeq.Load()
+	if b.freshAgentSnapshot("https://other.example") {
+		t.Fatal("different URL accepted old refs")
 	}
 }
 

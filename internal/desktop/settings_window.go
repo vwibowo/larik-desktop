@@ -3,11 +3,13 @@ package desktop
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/sfsymbols"
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
+	"larik/internal/integration"
 )
 
 func (a *App) vibrancy() mygo.Vibrancy {
@@ -131,7 +133,7 @@ func (a *App) settingsView(c *ui.Context) {
 	c.Root().Background(ui.Transparent)
 	sections := []struct{ name, icon string }{
 		{"Appearance", "paintbrush"}, {"Terminal", "terminal"},
-		{"Notifications", "bell"}, {"Sessions", "square.stack"},
+		{"Notifications", "bell"}, {"Sessions", "square.stack"}, {"Agents", "person.2"},
 	}
 	ui.Row(c).Fill().AlignItems(ui.Stretch).
 		Draw(func(p *ui.Painter, r ui.Rect) { gradient(p, r, k, !a.prefs.NativeBlur) }).Children(func() {
@@ -172,6 +174,8 @@ func (a *App) settingsView(c *ui.Context) {
 					a.notificationSettings(c, k)
 				case 3:
 					a.sessionSettings(c, k)
+				case 4:
+					a.agentSettings(c, k)
 				default:
 					a.appearanceSettings(c, k)
 				}
@@ -179,6 +183,64 @@ func (a *App) settingsView(c *ui.Context) {
 		})
 	})
 	a.themePicker(c, k)
+}
+
+func (a *App) agentSettings(c *ui.Context, k *palette) {
+	home, _ := os.UserHomeDir()
+	installed, statusErr := integration.Status(home)
+	a.settingCard(c, k, "Agent skills", "Install local skills for Codex, OpenCode, and Claude Code. Start a new agent session after installing.", "agents", func() {
+		if statusErr != nil {
+			ui.Text(c, statusErr.Error()).TextColor(ui.Hex("#c34b50")).Wrap()
+		}
+		label := "Install skills"
+		if installed {
+			label = "Remove skills"
+		}
+		if ui.Button(c, label).Clicked() {
+			var err error
+			if installed {
+				err = integration.Remove(home)
+			} else {
+				bin := filepath.Join(home, "Applications", "larik-desktop.app", "Contents", "MacOS", "larik-desktop")
+				if _, err = os.Stat(bin); err == nil {
+					err = integration.Install(home, bin)
+				} else {
+					err = fmt.Errorf("install Larik Desktop first: %w", err)
+				}
+			}
+			if err != nil {
+				a.settingsField, a.settingsErr = "agents", err.Error()
+			} else {
+				a.settingsField, a.settingsErr = "", ""
+			}
+		}
+	})
+	a.customSkillSettings(c, k, home)
+	a.settingCard(c, k, "Approved agents", "Each agent asks once before controlling Larik Desktop. Revoke access here.", "grants", func() {
+		if a.grants == nil {
+			return
+		}
+		list := a.grants.List()
+		if len(list) == 0 {
+			ui.Text(c, "No agents approved yet").FontSize(12).TextColor(k.muted)
+			return
+		}
+		for _, agent := range list {
+			ui.Row(c.Key(agent.Key())).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
+				ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+					ui.Text(c, agent.Name).FontSize(12).TextColor(k.text)
+					ui.Text(c, agent.Path).FontSize(11).TextColor(k.muted).SingleLine().Ellipsis("…")
+				})
+				if ui.Button(c, "Revoke").Clicked() {
+					if err := a.grants.Set(agent, false); err != nil {
+						a.settingsField, a.settingsErr = "grants", err.Error()
+					} else {
+						a.settingsField, a.settingsErr = "", ""
+					}
+				}
+			})
+		}
+	})
 }
 
 func (a *App) settingCard(c *ui.Context, k *palette, title, detail, field string, controls func()) {

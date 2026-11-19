@@ -27,6 +27,12 @@ func main() {
 }
 
 func run(args []string) error {
+	if len(args) > 0 && args[0] == "control" {
+		return runControl(args[1:])
+	}
+	if len(args) > 0 && args[0] == "skills" {
+		return runSkills(args[1:])
+	}
 	if len(args) > 0 && args[0] == "server" {
 		if len(args) != 1 {
 			return errors.New("server accepts no arguments")

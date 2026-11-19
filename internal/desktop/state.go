@@ -4,16 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 
+	"larik/internal/control"
 	"larik/internal/session"
 )
 
@@ -65,50 +68,55 @@ type Tab struct {
 }
 
 type App struct {
-	win             *mygo.Window
-	newWebView      func(string) (*mygo.WebView, error)
-	chooseDownload  func(string) (string, error)
-	client          *session.Client
-	databaseStore   *databaseStore
-	bookmarks       *bookmarkStore
-	bookmarkError   string
-	bookmarksOpen   bool
-	bookmarksPane   *Pane
-	bookmarksQuery  string
-	saveDatabaseCSV func(string, []byte, func(string, error))
-	copyText        func(string)
-	tabs            []*Tab
-	active          int
-	nextID          int
-	serverPID       int
-	shellOverride   bool
-	prefs           settings
-	settingsWin     *mygo.Window
-	settingsTab     int
-	settingsErr     string
-	settingsField   string
-	themePickerOpen bool
-	themePickerDark bool
-	themeSearch     string
-	themeNames      []string
-	shellDraft      string
-	folderDraft     string
-	err             string
-	closing         bool
-	focusReq        *Pane
-	pollDone        chan struct{}
-	saveDue         bool
-	saveAt          time.Time
-	lastSnapshot    string
-	lastTitle       string
-	paletteOpen     bool
-	paletteQuery    string
-	paletteIndex    int
-	hostOpen        bool
-	renaming        *Tab
-	renameText      string
-	services        ui.Services
-	pending         []func()
+	win                *mygo.Window
+	controlListener    net.Listener
+	grants             *control.Grants
+	authMu             sync.Mutex
+	newWebView         func(string) (*mygo.WebView, error)
+	chooseDownload     func(string) (string, error)
+	chooseSkillsFolder func() (string, error)
+	client             *session.Client
+	databaseStore      *databaseStore
+	bookmarks          *bookmarkStore
+	bookmarkError      string
+	bookmarksOpen      bool
+	bookmarksPane      *Pane
+	bookmarksQuery     string
+	saveDatabaseCSV    func(string, []byte, func(string, error))
+	copyText           func(string)
+	tabs               []*Tab
+	active             int
+	nextID             int
+	serverPID          int
+	shellOverride      bool
+	terminalControl    bool
+	prefs              settings
+	settingsWin        *mygo.Window
+	settingsTab        int
+	settingsErr        string
+	settingsField      string
+	themePickerOpen    bool
+	themePickerDark    bool
+	themeSearch        string
+	themeNames         []string
+	shellDraft         string
+	folderDraft        string
+	err                string
+	closing            bool
+	focusReq           *Pane
+	pollDone           chan struct{}
+	saveDue            bool
+	saveAt             time.Time
+	lastSnapshot       string
+	lastTitle          string
+	paletteOpen        bool
+	paletteQuery       string
+	paletteIndex       int
+	hostOpen           bool
+	renaming           *Tab
+	renameText         string
+	services           ui.Services
+	pending            []func()
 }
 
 func (a *App) id() int { a.nextID++; return a.nextID }
@@ -140,12 +148,12 @@ func (a *App) emptyPane(dir string) *Pane {
 }
 
 func (a *App) startTerminal(p *Pane) (*Pane, error) {
-	if !a.shellOverride {
+	if !a.shellOverride || !a.terminalControl {
 		if next, ready, err := a.client.UpgradeIfIdle(); err == nil {
 			a.client, a.shellOverride = next, ready
-			if ready {
-				a.serverPID, _, _, _ = next.HelloCapabilities()
-			}
+			pid, _, caps, _ := next.HelloCapabilities()
+			a.serverPID = pid
+			a.terminalControl = slices.Contains(caps, session.TerminalControlCapability)
 		}
 	}
 	shell := ""
@@ -613,6 +621,7 @@ type savedLayout struct {
 	Tabs   []savedTab `json:"tabs"`
 }
 type savedTab struct {
+	ID                int `json:"id,omitempty"`
 	Name, Focus, Zoom string
 	FocusID           int        `json:"focus_id,omitempty"`
 	ZoomID            int        `json:"zoom_id,omitempty"`
@@ -655,7 +664,7 @@ func saveNode(n *Node) *savedNode {
 func (a *App) snapshot() savedLayout {
 	out := savedLayout{Active: a.active}
 	for _, t := range a.tabs {
-		st := savedTab{Name: t.Name, Root: saveNode(t.Root)}
+		st := savedTab{ID: t.ID, Name: t.Name, Root: saveNode(t.Root)}
 		if t.Focus != nil {
 			st.Focus = t.Focus.SID
 			st.FocusID = t.Focus.ID
@@ -720,6 +729,7 @@ func (a *App) restore() bool {
 		visitIDs(n.B)
 	}
 	for _, tab := range saved.Tabs {
+		a.nextID = max(a.nextID, tab.ID)
 		visitIDs(tab.Root)
 	}
 	list, err := a.client.List()
@@ -731,7 +741,11 @@ func (a *App) restore() bool {
 		known[info.ID] = info
 	}
 	for _, st := range saved.Tabs {
-		t := &Tab{ID: a.id(), Name: st.Name}
+		id := st.ID
+		if id == 0 {
+			id = a.id()
+		}
+		t := &Tab{ID: id, Name: st.Name}
 		t.Root = a.restoreNode(st.Root, nil, t, known)
 		if t.Root == nil {
 			continue

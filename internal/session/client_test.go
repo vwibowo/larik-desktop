@@ -45,6 +45,7 @@ func TestLegacyServerKeepsActiveSessions(t *testing.T) {
 				switch req.Op {
 				case "hello":
 					res.Version = ProtocolVersion
+					res.Capabilities = []string{ShellOverrideCapability}
 				case "list":
 					res.Sessions = []Info{{ID: "running-shell"}}
 				case "shutdown":
@@ -56,7 +57,7 @@ func TestLegacyServerKeepsActiveSessions(t *testing.T) {
 	}()
 	c := &Client{path: path}
 	next, ready, err := c.UpgradeIfIdle()
-	if err != nil || ready || next != c || shutdown.Load() {
+	if err != nil || !ready || next != c || shutdown.Load() {
 		t.Fatalf("active legacy session was disturbed: client=%p ready=%v err=%v shutdown=%v", next, ready, err, shutdown.Load())
 	}
 }
@@ -112,7 +113,7 @@ func TestLegacyServerRestartsAfterLastSession(t *testing.T) {
 			go func() {
 				defer conn.Close()
 				_ = json.NewDecoder(conn).Decode(&Request{})
-				_ = json.NewEncoder(conn).Encode(Response{Version: ProtocolVersion, Capabilities: []string{ShellOverrideCapability}})
+				_ = json.NewEncoder(conn).Encode(Response{Version: ProtocolVersion, Capabilities: []string{ShellOverrideCapability, TerminalControlCapability}})
 			}()
 		}
 	}()

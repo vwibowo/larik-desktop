@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -145,7 +146,48 @@ func (s *server) handle(conn net.Conn) {
 func (s *server) request(req Request) Response {
 	switch req.Op {
 	case "hello":
-		return Response{PID: os.Getpid(), Version: ProtocolVersion, Capabilities: []string{ShellOverrideCapability}}
+		return Response{PID: os.Getpid(), Version: ProtocolVersion, Capabilities: []string{ShellOverrideCapability, TerminalControlCapability}}
+	case "read":
+		s.mu.Lock()
+		run := s.sessions[req.ID]
+		s.mu.Unlock()
+		if run == nil {
+			return Response{Error: "terminal session no longer exists"}
+		}
+		text := run.vt.Text()
+		if req.Lines > 0 {
+			lines := strings.Split(text, "\n")
+			if len(lines) > req.Lines {
+				text = strings.Join(lines[len(lines)-req.Lines:], "\n")
+			}
+		}
+		if len(text) > 256<<10 {
+			text = text[len(text)-(256<<10):]
+		}
+		return Response{Text: text}
+	case "write":
+		if len(req.Text) > 64<<10 {
+			return Response{Error: "terminal input exceeds 64 KiB"}
+		}
+		s.mu.Lock()
+		run := s.sessions[req.ID]
+		s.mu.Unlock()
+		if run == nil {
+			return Response{Error: "terminal session no longer exists"}
+		}
+		run.mu.Lock()
+		if run.exited {
+			run.mu.Unlock()
+			return Response{Error: "terminal session has exited"}
+		}
+		run.mu.Unlock()
+		if _, err := run.pty.master.Write([]byte(req.Text)); err != nil {
+			return Response{Error: err.Error()}
+		}
+		run.mu.Lock()
+		run.lastInput = time.Now()
+		run.mu.Unlock()
+		return Response{}
 	case "list":
 		s.mu.Lock()
 		runs := make([]*running, 0, len(s.order))

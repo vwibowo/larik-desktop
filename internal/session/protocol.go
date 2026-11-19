@@ -9,6 +9,7 @@ import (
 
 const ProtocolVersion = 1
 const ShellOverrideCapability = "shell-override"
+const TerminalControlCapability = "terminal-control"
 
 type Request struct {
 	Op     string          `json:"op"`
@@ -18,6 +19,8 @@ type Request struct {
 	Cols   int             `json:"cols,omitempty"`
 	Rows   int             `json:"rows,omitempty"`
 	Layout json.RawMessage `json:"layout,omitempty"`
+	Text   string          `json:"text,omitempty"`
+	Lines  int             `json:"lines,omitempty"`
 }
 
 type Response struct {
@@ -28,6 +31,7 @@ type Response struct {
 	PID          int             `json:"pid,omitempty"`
 	Version      int             `json:"version,omitempty"`
 	Capabilities []string        `json:"capabilities,omitempty"`
+	Text         string          `json:"text,omitempty"`
 }
 
 type Info struct {

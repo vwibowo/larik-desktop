@@ -3,12 +3,14 @@ package desktop
 import (
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 
+	"larik/internal/control"
 	"larik/internal/session"
 )
 
@@ -20,10 +22,20 @@ func Run() error {
 	}
 	registerFonts()
 	a := &App{prefs: readSettings()}
+	var err error
+	a.grants, err = control.LoadGrants()
+	if err != nil {
+		return err
+	}
 	a.prefs.applyAppearance()
 	var startErr error
 	mygo.App.WhenReady(func() {
 		startErr = a.open()
+		if startErr != nil {
+			mygo.App.Quit()
+			return
+		}
+		startErr = a.startControl()
 		if startErr != nil {
 			mygo.App.Quit()
 		}
@@ -45,6 +57,7 @@ func Run() error {
 	})
 	mygo.App.OnDidBecomeActive(func() { a.keepTerminalMaterialActive() })
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
+		a.stopControl()
 		if a.win != nil {
 			a.persistWorkspace()
 		}
@@ -71,7 +84,7 @@ func (a *App) open() error {
 	if err != nil {
 		return err
 	}
-	pid, version, _, err := client.HelloCapabilities()
+	pid, version, caps, err := client.HelloCapabilities()
 	if err != nil {
 		return err
 	}
@@ -79,6 +92,7 @@ func (a *App) open() error {
 		return fmt.Errorf("session server version %d is incompatible with this app (version %d); end old sessions before opening", version, session.ProtocolVersion)
 	}
 	a.client, a.serverPID, a.shellOverride = client, pid, ready
+	a.terminalControl = slices.Contains(caps, session.TerminalControlCapability)
 	a.tabs, a.active, a.closing, a.err = nil, 0, false, ""
 	a.bookmarksOpen, a.bookmarksPane, a.bookmarksQuery = false, nil, ""
 	a.pollDone = make(chan struct{})
@@ -170,14 +184,16 @@ func (a *App) poll(win *mygo.Window, done <-chan struct{}) {
 		win.Update(func() {
 			if a.win == win {
 				a.refresh(infos)
-				if len(infos) == 0 && !a.shellOverride {
+				if len(infos) == 0 && (!a.shellOverride || !a.terminalControl) {
 					next, ready, err := a.client.UpgradeIfIdle()
 					if err != nil {
 						a.err = "Session server upgrade failed: " + err.Error()
 					} else {
 						a.client, a.shellOverride = next, ready
-						if ready {
-							a.serverPID, _, _, _ = next.HelloCapabilities()
+						pid, _, caps, _ := next.HelloCapabilities()
+						a.serverPID = pid
+						a.terminalControl = slices.Contains(caps, session.TerminalControlCapability)
+						if ready && a.terminalControl {
 							if a.settingsWin != nil {
 								a.settingsWin.Invalidate()
 							}

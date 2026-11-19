@@ -18,6 +18,17 @@ import (
 
 type Client struct{ path string }
 
+// Existing connects without starting a new detached server.
+func Existing() (*Client, error) {
+	c := &Client{path: socketPath()}
+	conn, err := net.DialTimeout("unix", c.path, 250*time.Millisecond)
+	if err != nil {
+		return nil, errors.New("no detached terminal sessions are running")
+	}
+	conn.Close()
+	return c, nil
+}
+
 func Connect() (*Client, error) {
 	if runtime.GOOS != "darwin" {
 		return nil, errors.New("persistent sessions are supported on macOS only")
@@ -111,12 +122,13 @@ func (c *Client) upgradeIfIdle(connect func() (*Client, error)) (*Client, bool, 
 	if version != ProtocolVersion {
 		return c, false, fmt.Errorf("incompatible session server version %d", version)
 	}
-	if slices.Contains(capabilities, ShellOverrideCapability) {
+	hasShell := slices.Contains(capabilities, ShellOverrideCapability)
+	if hasShell && slices.Contains(capabilities, TerminalControlCapability) {
 		return c, true, nil
 	}
 	list, err := c.List()
 	if err != nil || len(list) > 0 {
-		return c, false, err
+		return c, hasShell, err
 	}
 	if err := c.Shutdown(); err != nil {
 		return c, false, err
@@ -165,6 +177,21 @@ func (c *Client) Save(layout json.RawMessage) error {
 }
 func (c *Client) Shutdown() error {
 	_, err := c.call(Request{Op: "shutdown"})
+	return err
+}
+
+func (c *Client) TerminalControl() (bool, error) {
+	_, _, caps, err := c.HelloCapabilities()
+	return slices.Contains(caps, TerminalControlCapability), err
+}
+
+func (c *Client) Read(id string, lines int) (string, error) {
+	r, err := c.call(Request{Op: "read", ID: id, Lines: lines})
+	return r.Text, err
+}
+
+func (c *Client) Write(id, text string) error {
+	_, err := c.call(Request{Op: "write", ID: id, Text: text})
 	return err
 }
 
