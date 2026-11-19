@@ -217,6 +217,24 @@ func TestMixedPaneWindowRestore(t *testing.T) {
 	}) {
 		t.Fatal("closing browser find retained query or match status")
 	}
+	if err := nativeValue(func() error {
+		web := created.browser.Browser.Web
+		web.Focus()
+		a.browserCommand("address")
+		if !nativeUIHasKeyboard(a.win) {
+			return fmt.Errorf("Browser address did not return the keyboard to the native UI")
+		}
+		created.browser.Browser.FocusAddress = false
+		web.Focus()
+		a.openPalette()
+		if !a.paletteOpen || !nativeUIHasKeyboard(a.win) {
+			return fmt.Errorf("command palette did not return the keyboard to the native UI")
+		}
+		a.paletteOpen = false
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	waitMixed(t, "SQLite schema", func() bool {
 		return nativeValue(func() bool { return created.database.Database != nil && len(created.database.Database.tables) > 0 })
 	})

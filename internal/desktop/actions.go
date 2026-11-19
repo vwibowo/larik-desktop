@@ -240,6 +240,9 @@ func (a *App) openPalette() {
 	a.paletteQuery = ""
 	a.paletteIndex = 0
 	a.focusReq = nil
+	if t := a.tab(); t != nil && t.Focus != nil && t.Focus.Browser != nil {
+		focusNativeUI(a.win)
+	}
 }
 
 type paletteEntry struct {

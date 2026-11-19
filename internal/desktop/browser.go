@@ -296,6 +296,7 @@ func (a *App) browserCommand(command string) {
 	case "address":
 		b.FocusAddress = true
 		a.focusReq = nil
+		focusNativeUI(a.win)
 	case "reload":
 		b.Web.Page().Reload()
 	case "back":

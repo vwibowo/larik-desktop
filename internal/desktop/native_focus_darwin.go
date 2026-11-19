@@ -18,7 +18,7 @@ var (
 
 // MyGo's Element.Focus selects the UI control, but AppKit can keep a
 // WKWebView as the first responder. Move the keyboard to MyGo's surface
-// before the next frame focuses the Find input.
+// before the next frame focuses a native input or dialog.
 func focusNativeUI(win *mygo.Window) bool {
 	if win == nil {
 		return false
