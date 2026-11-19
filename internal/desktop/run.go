@@ -56,6 +56,13 @@ func Run() error {
 }
 
 func (a *App) open() error {
+	if a.bookmarks == nil && a.bookmarkError == "" {
+		var err error
+		a.bookmarks, err = loadBookmarkStore()
+		if err != nil {
+			a.bookmarkError = err.Error()
+		}
+	}
 	client, err := session.Connect()
 	if err != nil {
 		return err
@@ -73,6 +80,7 @@ func (a *App) open() error {
 	}
 	a.client, a.serverPID, a.shellOverride = client, pid, ready
 	a.tabs, a.active, a.closing, a.err = nil, 0, false, ""
+	a.bookmarksOpen, a.bookmarksPane, a.bookmarksQuery = false, nil, ""
 	a.pollDone = make(chan struct{})
 	win := mygo.NewWindow(mygo.WindowOptions{
 		Title: "larik-desktop", Width: 1000, Height: 620, MinWidth: 560, MinHeight: 340,

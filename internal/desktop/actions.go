@@ -68,6 +68,8 @@ func (a *App) actions() []action {
 		{"Reload page", "Reload the current browser pane", "⌘R", "CmdOrCtrl+R", func(a *App) { a.browserCommand("reload") }},
 		{"Back", "Previous browser page", "⌘[", "CmdOrCtrl+[", func(a *App) { a.browserCommand("back") }},
 		{"Forward", "Next browser page", "⌘]", "CmdOrCtrl+]", func(a *App) { a.browserCommand("forward") }},
+		{"Bookmark page", "Save or remove the current browser page", "", "", func(a *App) { a.bookmarkCurrent(a.focusedBrowserPane()) }},
+		{"Show bookmarks", "Open saved browser pages", "", "", func(a *App) { a.openBookmarks(a.focusedBrowserPane()) }},
 	}
 }
 
@@ -230,7 +232,7 @@ func (a *App) menu() *mygo.Menu {
 				}
 			}},
 		}},
-		{Label: "Browser", Submenu: []*mygo.MenuItem{item(31), item(32), mygo.Separator(), item(33), item(34)}},
+		{Label: "Browser", Submenu: []*mygo.MenuItem{item(31), item(32), mygo.Separator(), item(33), item(34), mygo.Separator(), item(35), item(36)}},
 		{Role: mygo.RoleWindowMenu},
 	})
 }

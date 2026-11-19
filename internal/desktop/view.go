@@ -43,6 +43,7 @@ func (a *App) view(c *ui.Context) {
 	})
 	a.shortcuts(c)
 	a.commandPalette(c, k)
+	a.bookmarksDialog(c, k)
 	if a.err != "" {
 		a.errorBanner(c, k)
 	}

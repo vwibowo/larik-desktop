@@ -69,6 +69,11 @@ type App struct {
 	newWebView      func(string) (*mygo.WebView, error)
 	client          *session.Client
 	databaseStore   *databaseStore
+	bookmarks       *bookmarkStore
+	bookmarkError   string
+	bookmarksOpen   bool
+	bookmarksPane   *Pane
+	bookmarksQuery  string
 	saveDatabaseCSV func(string, []byte, func(string, error))
 	copyText        func(string)
 	tabs            []*Tab

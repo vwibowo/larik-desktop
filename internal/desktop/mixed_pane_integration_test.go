@@ -183,6 +183,20 @@ func TestMixedPaneWindowRestore(t *testing.T) {
 		})
 	})
 	if err := nativeValue(func() error {
+		a.bookmarkCurrent(created.browser)
+		if !a.bookmarks.has(browserURL) {
+			return fmt.Errorf("current browser page was not bookmarked: %s", a.bookmarkError)
+		}
+		a.openBookmarks(created.browser)
+		if !a.bookmarksOpen {
+			return fmt.Errorf("bookmarks dialog did not open")
+		}
+		a.bookmarksOpen = false
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := nativeValue(func() error {
 		created.browser.Browser.Web.Focus()
 		if nativeUIHasKeyboard(a.win) {
 			return fmt.Errorf("browser page did not take the keyboard")
@@ -313,5 +327,9 @@ func TestMixedPaneWindowRestore(t *testing.T) {
 	var saved savedLayout
 	if err != nil || json.Unmarshal(data, &saved) != nil || len(saved.Tabs) != 0 {
 		t.Fatalf("Keep Sessions off retained layout: %s, %v", data, err)
+	}
+	bookmarks, err := loadBookmarkStore()
+	if err != nil || !bookmarks.has(browserURL) {
+		t.Fatalf("clearing sessions removed bookmarks: %+v, %v", bookmarks, err)
 	}
 }

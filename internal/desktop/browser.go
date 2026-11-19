@@ -119,6 +119,7 @@ func (a *App) startBrowser(p *Pane, raw string) error {
 				if b.URL != u {
 					b.findSeq++
 					b.FindResult, b.FindError, b.FindBusy = mygo.FindResult{}, "", false
+					b.Title = ""
 				}
 				b.URL = u
 				if u == blankPage {
@@ -233,7 +234,7 @@ func (a *App) navigateBrowser(p *Pane) {
 	}
 	b.findSeq++
 	b.FindResult, b.FindError, b.FindBusy = mygo.FindResult{}, "", false
-	b.URL, b.Address, b.Error, b.Loading = u, u, "", true
+	b.URL, b.Address, b.Title, b.Error, b.Loading = u, u, "", "", true
 	b.Web.Focus()
 	a.changed()
 }
@@ -346,7 +347,20 @@ func (a *App) browserPane(c *ui.Context, k *palette, p *Pane) {
 			}
 			b.Web.Focus()
 		}
+		star, label := "star", "Save bookmark"
+		if a.bookmarks.has(b.URL) {
+			star, label = "star.fill", "Remove bookmark"
+		}
+		if chromeButton(c, k, star, label).Clicked() {
+			a.bookmarkCurrent(p)
+		}
+		if chromeButton(c, k, "book.closed", "Show bookmarks").Clicked() {
+			a.openBookmarks(p)
+		}
 	})
+	if a.bookmarkError != "" {
+		ui.Text(c, a.bookmarkError).FontSize(11).TextColor(k.attention).Padding(2, 9)
+	}
 	if b.Error != "" {
 		ui.Row(c).Padding(5, 10).Background(k.track).Children(func() {
 			sfsymbols.Symbol(c, "exclamationmark.triangle").Size(13).Color(k.attention)

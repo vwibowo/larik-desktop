@@ -18,6 +18,8 @@ The installer copies the executable and `libghostty-vt.dylib` into `~/Applicatio
 
 Browser panes use macOS WKWebView with an address/search field, back, forward, reload, and stop. Site cookies and storage persist in a separate Larik Desktop browser session on macOS 14 and later; on macOS 13 they use the app's persistent default WebView store. A user-opened link requesting a new window opens another browser pane; script popups are blocked. Browser pages do not receive the app's Go bridge. Their last URLs restore with the workspace.
 
+Use the star in a browser pane to save or remove its current page. The book button opens a searchable bookmark list where saved pages can be opened in that pane or removed. Bookmarks are stored separately from session layouts and remain when Keep Sessions is off.
+
 Database panes provide read-only SQLite, PostgreSQL, MySQL/MariaDB, and SQL Server access. Create a connection in the pane, browse schema objects and rows, run bounded read-only SQL, inspect results, and export loaded rows as CSV. Connection profiles are stored only for this app in its data directory; direct passwords use a separate macOS Keychain service. Closing a database pane cancels its active work.
 
 ## Workspace controls
