@@ -47,6 +47,8 @@ Database panes provide read-only SQLite, PostgreSQL, MySQL/MariaDB, and SQL Serv
 
 Drag tabs to reorder them, drag a pane header onto another to swap them, and drag or double-click a divider to adjust its size. The command palette also searches tabs and panes. The View menu offers light, dark, and system appearance.
 
+In an empty pane, press **T**, **B**, or **D** to open Terminal, Browser, or Database, or click an option in the compact chooser.
+
 Find searches the focused terminal's screen and scrollback or the focused browser page. Return or ⌘G moves to the next match, ⇧⌘G moves to the previous match, and Escape closes Find.
 
 Settings opens in its own native window. It controls appearance, blur, background color and opacity, terminal font and input behavior, the shell and starting folder for new tabs, notifications, and whether closing the terminal window keeps its sessions. Pane backgrounds can use Larik's surface, follow the active Ghostty terminal theme, or use a separate custom color; pane changes apply to open tabs immediately. The background is solid when Native Blur is off. Appearance also lets you search Ghostty themes and choose separate light and dark terminal palettes; theme changes apply to open panes immediately. An updated app preserves shells still owned by an older server; a custom shell preference takes effect after those shells end and the server restarts.

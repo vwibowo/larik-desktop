@@ -293,38 +293,42 @@ func (a *App) paneCard(c *ui.Context, k *palette, p *Pane) ui.Element {
 }
 
 func (a *App) emptyPaneView(c *ui.Context, k *palette, p *Pane) {
-	ui.Column(c).Grow(1).MinHeight(0).Justify(ui.Center).AlignItems(ui.Center).Gap(15).Padding(20).Children(func() {
-		ui.Text(c, "Open a pane").FontSize(20).FontWeight(650).TextColor(k.text)
-		ui.Text(c, "Choose what to work with").FontSize(12.5).TextColor(k.muted)
-		ui.Row(c).Gap(10).Wrap().Justify(ui.Center).Children(func() {
-			for _, option := range []struct {
-				kind, icon, title, detail string
-				available                 bool
-			}{
-				{paneTerminal, "terminal", "Terminal", "Run a shell", true},
-				{paneBrowser, "globe", "Browser", "Open a web page", true},
-				{paneDatabase, "cylinder.split.1x2", "Database", "Browse data", true},
-			} {
+	options := []struct {
+		kind, icon, title, hint string
+		key                     ui.Key
+	}{
+		{paneTerminal, "terminal", "Terminal", "T", ui.KeyT},
+		{paneBrowser, "globe", "Browser", "B", ui.KeyB},
+		{paneDatabase, "cylinder.split.1x2", "Database", "D", ui.KeyD},
+	}
+	canUseKeys := p.Tab != nil && a.tab() == p.Tab && p.Tab.Focus == p &&
+		!a.paletteOpen && !a.bookmarksOpen && !a.hostOpen && a.renaming == nil && !c.FocusTakesText()
+	ui.Column(c).Grow(1).MinHeight(0).Justify(ui.Center).AlignItems(ui.Center).Gap(12).Padding(16).Children(func() {
+		ui.Text(c, "New pane").FontSize(16).FontWeight(650).TextColor(k.text)
+		ui.Column(c).Width(260).Shrink(1).MinWidth(0).Padding(4).Gap(2).Radius(10).
+			Background(k.track).Border(1, k.border).Children(func() {
+			for _, option := range options {
 				option := option
-				row := ui.Column(c.Key(option.kind)).Width(145).Height(116).Padding(12).Gap(5).Radius(10).
-					Background(k.track).Border(1, k.border).Role(ui.RoleButton).Label(option.title)
-				if option.available {
-					row.Cursor(ui.CursorPointer)
-				} else {
-					row.Disabled(true)
+				row := ui.Row(c.Key(option.kind)).FillWidth().Height(42).Padding(0, 10).Gap(10).
+					AlignItems(ui.Center).Radius(7).Cursor(ui.CursorPointer).Role(ui.RoleButton).
+					Label(option.title + " — " + option.hint)
+				if row.Hovered() || row.Pressed() {
+					row.Background(k.hover)
 				}
 				row.Children(func() {
-					sfsymbols.Symbol(c, option.icon).Size(22).Color(k.muted)
-					ui.Text(c, option.title).FontSize(13).FontWeight(650).TextColor(k.text)
-					ui.Text(c, option.detail).FontSize(11).TextColor(k.muted)
+					sfsymbols.Symbol(c, option.icon).Size(16).Color(k.muted)
+					ui.Text(c, option.title).Grow(1).FontSize(13).FontWeight(600).TextColor(k.text)
+					ui.Box(c).Size(22, 22).Center().Radius(5).Background(k.selected).Children(func() {
+						ui.Text(c, option.hint).FontSize(11).FontWeight(650).TextColor(k.muted)
+					})
 				})
-				if option.available && row.Clicked() {
+				if row.Clicked() || (canUseKeys && c.Shortcut(0, option.key) && !c.ShortcutRepeated()) {
 					a.later(c, func() { a.choosePane(p, option.kind) })
 				}
 			}
 		})
 		if p.ChoiceError != "" {
-			ui.Text(c, p.ChoiceError).FontSize(11).TextColor(k.attention)
+			ui.Text(c, p.ChoiceError).MaxWidth(260).FontSize(11).TextColor(k.attention).Wrap()
 		}
 	})
 }

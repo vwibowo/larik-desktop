@@ -26,10 +26,45 @@ func TestNewTabsAndSplitsStartWithChooser(t *testing.T) {
 		t.Fatalf("split did not create a chooser: %+v", second)
 	}
 	view := ui.NewTester(a.view, 900, 620)
-	for _, label := range []string{"Terminal", "Browser", "Database", "Browse data"} {
-		if !view.HasText(label) {
+	for _, label := range []string{"Terminal — T", "Browser — B", "Database — D"} {
+		if _, ok := view.Find(label); !ok {
 			t.Errorf("chooser missing %q", label)
 		}
+	}
+}
+
+func TestChooserShortcutTargetsFocusedEmptyPane(t *testing.T) {
+	a := &App{prefs: defaultSettings(), newWebView: func(string) (*mygo.WebView, error) {
+		return nil, errors.New("WKWebView unavailable")
+	}}
+	if err := a.newTab("/tmp"); err != nil {
+		t.Fatal(err)
+	}
+	first := a.tab().Focus
+	a.split(false)
+	second := a.tab().Focus
+	view := ui.NewTester(a.view, 900, 620)
+	view.Key(0, ui.KeyB)
+	view.Frame()
+	if first.ChoiceError != "" || !strings.Contains(second.ChoiceError, "WKWebView unavailable") {
+		t.Fatalf("B chose the wrong pane: first=%q second=%q", first.ChoiceError, second.ChoiceError)
+	}
+}
+
+func TestChooserShortcutDoesNotRunBehindPalette(t *testing.T) {
+	a := &App{prefs: defaultSettings(), newWebView: func(string) (*mygo.WebView, error) {
+		return nil, errors.New("browser choice was invoked")
+	}}
+	if err := a.newTab("/tmp"); err != nil {
+		t.Fatal(err)
+	}
+	p := a.tab().Focus
+	a.paletteOpen = true
+	view := ui.NewTester(a.view, 900, 620)
+	view.Key(0, ui.KeyB)
+	view.Frame()
+	if p.Kind != paneEmpty || p.ChoiceError != "" {
+		t.Fatalf("chooser shortcut ran behind palette: %+v", p)
 	}
 }
 
